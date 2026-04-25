@@ -1,21 +1,26 @@
 {
-  "name": "ticket-pipeline",
+  "name": "demos",
+  "module": "index.ts",
+  "type": "module",
   "private": true,
   "scripts": {
-    "generate": "bunx drizzle-kit generate",
-    "migrate": "bun run src/db/migrate.ts",
+    "dev": "bun --hot src/index.ts",
+    "db:migrate": "bunx drizzle-kit migrate",
+    "db:rollback": "bun src/db/rollback.ts",
+    "db:generate": "bunx drizzle-kit generate",
+    "seed": "bun src/db/seed.ts",
     "test": "bun test"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "drizzle-kit": "^0.31.10"
+    "drizzle-kit": "^0.31.10",
+    "pg": "^8.20.0"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
-    "postgres": "^3.4.9",
     "zod": "^4.3.6"
   }
 }
