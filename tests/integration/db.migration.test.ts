@@ -71,26 +71,26 @@ describe("0000_create_tickets — forward migration", () => {
     expect(rows).toHaveLength(7);
     const col = Object.fromEntries(rows.map((r) => [r.column_name, r]));
 
-    expect(col["id"].data_type).toBe("uuid");
-    expect(col["id"].is_nullable).toBe("NO");
+    expect(col["id"]?.data_type).toBe("uuid");
+    expect(col["id"]?.is_nullable).toBe("NO");
 
-    expect(col["status"].data_type).toBe("USER-DEFINED");
-    expect(col["status"].is_nullable).toBe("NO");
+    expect(col["status"]?.data_type).toBe("USER-DEFINED");
+    expect(col["status"]?.is_nullable).toBe("NO");
 
-    expect(col["last_completed_phase"].data_type).toBe("USER-DEFINED");
-    expect(col["last_completed_phase"].is_nullable).toBe("YES");
+    expect(col["last_completed_phase"]?.data_type).toBe("USER-DEFINED");
+    expect(col["last_completed_phase"]?.is_nullable).toBe("YES");
 
-    expect(col["triage_output"].data_type).toBe("jsonb");
-    expect(col["triage_output"].is_nullable).toBe("YES");
+    expect(col["triage_output"]?.data_type).toBe("jsonb");
+    expect(col["triage_output"]?.is_nullable).toBe("YES");
 
-    expect(col["resolution_output"].data_type).toBe("jsonb");
-    expect(col["resolution_output"].is_nullable).toBe("YES");
+    expect(col["resolution_output"]?.data_type).toBe("jsonb");
+    expect(col["resolution_output"]?.is_nullable).toBe("YES");
 
-    expect(col["created_at"].data_type).toBe("timestamp without time zone");
-    expect(col["created_at"].is_nullable).toBe("NO");
+    expect(col["created_at"]?.data_type).toBe("timestamp without time zone");
+    expect(col["created_at"]?.is_nullable).toBe("NO");
 
-    expect(col["updated_at"].data_type).toBe("timestamp without time zone");
-    expect(col["updated_at"].is_nullable).toBe("NO");
+    expect(col["updated_at"]?.data_type).toBe("timestamp without time zone");
+    expect(col["updated_at"]?.is_nullable).toBe("NO");
   });
 
   it("ticket_status has all 5 values in correct order", async () => {
