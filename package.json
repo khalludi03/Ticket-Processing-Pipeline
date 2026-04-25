@@ -1,0 +1,19 @@
+{
+  "name": "ticket-pipeline",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "generate": "bunx drizzle-kit generate",
+    "migrate": "bun run src/db/migrate.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.1",
+    "postgres": "^3.4.8",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "drizzle-kit": "^0.31.9"
+  }
+}
