@@ -12,14 +12,14 @@ A queue-based backend system for automated AI ticket triage and resolution. Tick
 | Runtime | Node.js / TypeScript |
 | HTTP Framework | Hono |
 | ORM | Drizzle ORM |
-| Database | PostgreSQL |
+| Database | PostgreSQL (Supabase — hosted, dev + staging) |
 | Queue | AWS SQS + DLQ |
 | Deployment | AWS Lambda |
 | WebSockets | API Gateway WebSocket API + DynamoDB (connection store) |
 | AI Execution | Direct AWS Bedrock calls wrapped in LangSmith `traceable` |
 | API Auth | API Gateway API Keys |
 | IaC | AWS CDK (TypeScript) |
-| Env Config | Zod schema + `.env.example` |
+| Env Config | Zod schema + `.env.example` (Supabase `DATABASE_URL`) |
 | Logger | Pino with global `redact` config |
 | Testing | Unit + integration (real DB + real SQS) |
 | Project Structure | Modular monolith |
@@ -122,6 +122,15 @@ A queue-based backend system for automated AI ticket triage and resolution. Tick
 - **Replay guard**: rejects if ticket is currently `processing`
 - Unit tests: retry logic, fallback, PII redaction, phase guards
 - Integration tests: 3-retry + DLQ routing, fallback applied, replay skips completed phase
+
+---
+
+## Database Setup
+
+- **Dev / Staging**: Supabase hosted PostgreSQL — connection string via `DATABASE_URL` env var
+- **Production**: AWS RDS PostgreSQL (provisioned via CDK)
+- Drizzle ORM manages all schema migrations — no manual SQL in production paths
+- `.env` is gitignored; `.env.example` documents all required variables
 
 ---
 
