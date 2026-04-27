@@ -1,26 +1,35 @@
 {
   "name": "demos",
-  "module": "index.ts",
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun --hot src/index.ts",
-    "db:migrate": "bunx drizzle-kit migrate",
-    "db:rollback": "bun src/db/rollback.ts",
-    "db:generate": "bunx drizzle-kit generate",
-    "seed": "bun src/db/seed.ts",
-    "test": "bun test"
-  },
-  "devDependencies": {
-    "@types/bun": "latest",
-    "drizzle-kit": "^0.31.10",
-    "pg": "^8.20.0"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
+    "dev": "node --watch --strip-types src/index.ts",
+    "db:migrate": "npx drizzle-kit migrate",
+    "db:rollback": "node --strip-types src/db/rollback.ts",
+    "db:generate": "npx drizzle-kit generate",
+    "seed": "node --strip-types src/db/seed.ts",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1037.0",
+    "@aws-sdk/client-sqs": "^3.1037.0",
+    "@hono/node-server": "^2.0.0",
+    "dotenv": "^16.0.0",
     "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.15",
+    "langsmith": "^0.5.25",
+    "pg": "^8.20.0",
+    "pino": "^10.3.1",
+    "ws": "^8.20.0",
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/pg": "^8",
+    "@types/ws": "^8.18.1",
+    "drizzle-kit": "^0.31.10",
+    "pino-pretty": "^13.1.3",
+    "typescript": "^5",
+    "vitest": "^3"
   }
 }

@@ -8,6 +8,20 @@
       "when": 1777141478357,
       "tag": "0000_pale_sprite",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777277038651,
+      "tag": "0001_nice_stick",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777278448122,
+      "tag": "0002_slim_yellowjacket",
+      "breakpoints": true
     }
   ]
 }

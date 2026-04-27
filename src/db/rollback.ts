@@ -1,22 +1,27 @@
-import { SQL } from 'bun'
-import { resolve, dirname } from 'path'
-import { fileURLToPath } from 'url'
+import 'dotenv/config'
+import { Pool } from 'pg'
+import { resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const migrationsFolder = resolve(__dirname, 'migrations')
 
 const url = new URL(process.env.DATABASE_URL!)
 const isLocal = url.hostname === 'localhost' || url.hostname === '127.0.0.1'
-const client = new SQL({
-  hostname: url.hostname,
+
+const pool = new Pool({
+  host: url.hostname,
   port: Number(url.port) || 5432,
   database: url.pathname.slice(1),
-  username: url.username,
+  user: url.username,
   password: process.env.DATABASE_PASSWORD!,
-  tls: !isLocal,
+  ssl: isLocal ? false : { rejectUnauthorized: false },
 })
 
-const journal = await import('./migrations/meta/_journal.json')
+const journal = JSON.parse(readFileSync(resolve(migrationsFolder, 'meta/_journal.json'), 'utf-8')) as {
+  entries: { tag: string }[]
+}
 const entries = [...journal.entries].reverse()
 
 if (entries.length === 0) {
@@ -26,8 +31,8 @@ if (entries.length === 0) {
 
 const latest = entries[0]!
 const downFile = resolve(migrationsFolder, `${latest.tag}.down.ts`)
-const mod = await import(downFile)
-await mod.down(client)
+const mod = await import(downFile) as { down: (pool: Pool) => Promise<void> }
+await mod.down(pool)
 console.log(`Rolled back: ${latest.tag}`)
 
-await client.end()
+await pool.end()

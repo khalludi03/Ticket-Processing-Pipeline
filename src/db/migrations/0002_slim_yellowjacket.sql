@@ -1,0 +1,1 @@
+ALTER TABLE "job_tasks" ADD COLUMN "processing_time_ms" integer;

@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: testingpassword
+      POSTGRES_DB: ticket_pipeline
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  pg_admin:
+    image: dpage/pgadmin4
+    ports:
+      - "8080:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: khaledjb03121@gmail.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    depends_on:
+      - db
+
+  localstack:
+    image: localstack/localstack:3.8.1
+    profiles:
+      - localstack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: sqs
+
+volumes:
+  db_data:
