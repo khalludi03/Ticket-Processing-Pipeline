@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { resolutionOutputSchema } from '../../src/resolution/schema.ts'
+import { resolutionOutputSchema } from '../../src/schemas/resolution.ts'
 
 const valid = {
   suggested_reply: 'Thank you for reaching out. We have identified the issue and are working on a fix.',

@@ -1,6 +1,6 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
-import type { ResolutionOutput } from '../../src/resolution/schema.ts'
-import type { TriageOutput } from '../../src/triage/schema.ts'
+import type { ResolutionOutput } from '../../src/schemas/resolution.ts'
+import type { TriageOutput } from '../../src/schemas/triage.ts'
 
 // ── Mock repository ──────────────────────────────────────────────────────────
 vi.mock('../../src/repositories/tickets.repository.ts', () => ({
@@ -45,7 +45,7 @@ import {
   setNeedsManualReview,
   setResolutionFallback,
 } from '../../src/repositories/tickets.repository.ts'
-import { processResolutionMessage } from '../../src/resolution/handler.ts'
+import { processResolutionMessage } from '../../src/handlers/resolution.ts'
 import { roomManager } from '../../src/realtime/room-manager.ts'
 
 const mockRepo = {

@@ -1,6 +1,5 @@
 import { test, expect } from 'vitest'
-import { TRIAGE_FALLBACK } from '../../src/triage/fallback.ts'
-import { triageOutputSchema } from '../../src/triage/schema.ts'
+import { TRIAGE_FALLBACK, triageOutputSchema } from '../../src/schemas/triage.ts'
 
 test('TRIAGE_FALLBACK satisfies triageOutputSchema', () => {
   const result = triageOutputSchema.safeParse(TRIAGE_FALLBACK)

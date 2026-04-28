@@ -10,3 +10,12 @@ export const triageOutputSchema = z.object({
 })
 
 export type TriageOutput = z.infer<typeof triageOutputSchema>
+
+export const TRIAGE_FALLBACK: TriageOutput = {
+  category: 'general',
+  priority: 'medium',
+  sentiment: 'neutral',
+  summary: 'Automated triage unavailable — manual review required.',
+  suggested_tags: [],
+  confidence: 0,
+}

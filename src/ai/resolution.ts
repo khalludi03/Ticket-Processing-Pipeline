@@ -1,10 +1,10 @@
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime'
 import { traceable } from 'langsmith/traceable'
 import { config } from '../config.ts'
-import { resolutionOutputSchema, type ResolutionOutput } from './schema.ts'
+import { resolutionOutputSchema, type ResolutionOutput } from '../schemas/resolution.ts'
+import type { TriageOutput } from '../schemas/triage.ts'
 import type { InferSelectModel } from 'drizzle-orm'
 import type { tickets } from '../db/schema.ts'
-import type { TriageOutput } from '../triage/schema.ts'
 
 export type TicketRow = InferSelectModel<typeof tickets>
 

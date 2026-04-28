@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'vitest'
-import { sqsMessageSchema } from '../../src/queue/schema.ts'
+import { sqsMessageSchema } from '../../src/schemas/queue.ts'
 
 describe('sqsMessageSchema', () => {
   test('accepts valid triage message', () => {

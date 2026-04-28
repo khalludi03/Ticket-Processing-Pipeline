@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { triageOutputSchema } from '../../src/triage/schema.ts'
+import { triageOutputSchema } from '../../src/schemas/triage.ts'
 
 const valid = {
   category: 'technical',

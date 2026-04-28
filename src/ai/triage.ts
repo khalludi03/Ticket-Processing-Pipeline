@@ -1,11 +1,11 @@
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime'
 import { traceable } from 'langsmith/traceable'
 import { config } from '../config.ts'
-import { triageOutputSchema, type TriageOutput } from './schema.ts'
+import { triageOutputSchema, type TriageOutput } from '../schemas/triage.ts'
 import type { InferSelectModel } from 'drizzle-orm'
 import type { tickets } from '../db/schema.ts'
 
-type TicketRow = InferSelectModel<typeof tickets>
+export type TicketRow = InferSelectModel<typeof tickets>
 
 const SYSTEM_PROMPT = `You are a customer support triage specialist. Analyze the ticket and respond with a JSON object only — no markdown, no explanation.
 
@@ -60,5 +60,3 @@ export const callTriageAI = traceable(_callTriageAI, {
   name: 'triage',
   run_type: 'llm',
 })
-
-export type { TicketRow }

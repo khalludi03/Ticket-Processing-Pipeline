@@ -1,6 +1,5 @@
 import { test, expect } from 'vitest'
-import { RESOLUTION_FALLBACK } from '../../src/resolution/fallback.ts'
-import { resolutionOutputSchema } from '../../src/resolution/schema.ts'
+import { RESOLUTION_FALLBACK, resolutionOutputSchema } from '../../src/schemas/resolution.ts'
 
 test('RESOLUTION_FALLBACK satisfies resolutionOutputSchema', () => {
   const result = resolutionOutputSchema.safeParse(RESOLUTION_FALLBACK)

@@ -1,7 +1,10 @@
-import type { SQSMessage } from '../queue/schema.ts'
-import { callResolutionAI, type TicketRow } from './ai.ts'
-import type { TriageOutput } from '../triage/schema.ts'
-import type { ResolutionOutput } from './schema.ts'
+import { SendMessageCommand } from '@aws-sdk/client-sqs'
+import { createSQSClient } from '../queue/client.ts'
+import { config } from '../config.ts'
+import type { SQSMessage } from '../schemas/queue.ts'
+import { callResolutionAI, type TicketRow } from '../ai/resolution.ts'
+import type { TriageOutput } from '../schemas/triage.ts'
+import type { ResolutionOutput } from '../schemas/resolution.ts'
 import {
   getTicketForResolution,
   setJobTaskProcessing,
@@ -10,9 +13,6 @@ import {
   setNeedsManualReview,
   setResolutionFallback,
 } from '../repositories/tickets.repository.ts'
-import { SendMessageCommand } from '@aws-sdk/client-sqs'
-import { createSQSClient } from '../queue/client.ts'
-import { config } from '../config.ts'
 import { roomManager } from '../realtime/room-manager.ts'
 import { logger } from '../logger.ts'
 
@@ -49,10 +49,12 @@ export async function processResolutionMessage(
   log.info('resolution started')
 
   try {
+    roomManager.emit(ticket_id, { type: 'phase_progress', ticket_id, phase: 'resolution', timestamp: new Date().toISOString() })
     const start = Date.now()
     const output = await aiCall(ticket, triage)
     const processingTimeMs = Date.now() - start
     await insertResolutionDraft(ticket_id, output, processingTimeMs, config.BEDROCK_MODEL_ID)
+    roomManager.emit(ticket_id, { type: 'phase_complete', ticket_id, phase: 'resolution', timestamp: new Date().toISOString() })
     roomManager.emit(ticket_id, { type: 'ticket_success', ticket_id, timestamp: new Date().toISOString() })
     roomManager.close(ticket_id)
     log.info({ processingTimeMs }, 'resolution completed')

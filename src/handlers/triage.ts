@@ -1,9 +1,9 @@
 import { SendMessageCommand } from '@aws-sdk/client-sqs'
 import { createSQSClient } from '../queue/client.ts'
 import { config } from '../config.ts'
-import type { SQSMessage } from '../queue/schema.ts'
-import { callTriageAI, type TicketRow } from './ai.ts'
-import type { TriageOutput } from './schema.ts'
+import type { SQSMessage } from '../schemas/queue.ts'
+import { callTriageAI, type TicketRow } from '../ai/triage.ts'
+import type { TriageOutput } from '../schemas/triage.ts'
 import {
   getTicketForTriage,
   setJobTaskProcessing,
@@ -42,10 +42,12 @@ export async function processTriageMessage(
   log.info('triage started')
 
   try {
+    roomManager.emit(ticket_id, { type: 'phase_progress', ticket_id, phase: 'triage', timestamp: new Date().toISOString() })
     const start = Date.now()
     const output = await aiCall(ticket)
     const processingTimeMs = Date.now() - start
     await setTriageCompleted(ticket_id, output, processingTimeMs, config.BEDROCK_MODEL_ID)
+    roomManager.emit(ticket_id, { type: 'phase_complete', ticket_id, phase: 'triage', timestamp: new Date().toISOString() })
     await enqueueResolution(ticket_id)
     log.info({ processingTimeMs }, 'triage completed')
   } catch (err) {

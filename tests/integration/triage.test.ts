@@ -9,10 +9,10 @@ import {
 import { eq, and } from 'drizzle-orm'
 import { db } from '../../src/db/index.ts'
 import { tickets, jobTasks } from '../../src/db/schema.ts'
-import { processTriageMessage } from '../../src/triage/handler.ts'
+import { processTriageMessage } from '../../src/handlers/triage.ts'
 import { roomManager } from '../../src/realtime/room-manager.ts'
-import type { TriageOutput } from '../../src/triage/schema.ts'
-import type { SQSMessage } from '../../src/queue/schema.ts'
+import type { TriageOutput } from '../../src/schemas/triage.ts'
+import type { SQSMessage } from '../../src/schemas/queue.ts'
 
 const QUEUE_NAME = 'dev-tickets-queue'
 const DLQ_NAME = 'dev-tickets-dlq'

@@ -66,6 +66,15 @@ export const apiKeys = pgTable('api_keys', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
+export const replayAttempts = pgTable('replay_attempts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ticketId: uuid('ticket_id')
+    .notNull()
+    .references(() => tickets.id, { onDelete: 'cascade' }),
+  phase: phaseEnum('phase').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
 export const resolutionDrafts = pgTable(
   'resolution_drafts',
   {

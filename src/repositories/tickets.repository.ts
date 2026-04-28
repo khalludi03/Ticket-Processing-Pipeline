@@ -1,11 +1,11 @@
 import { eq, and, max } from 'drizzle-orm'
 import { db } from '../db/index.ts'
-import { tickets, jobTasks, resolutionDrafts } from '../db/schema.ts'
+import { tickets, jobTasks, resolutionDrafts, replayAttempts } from '../db/schema.ts'
 import type { InferInsertModel, InferSelectModel } from 'drizzle-orm'
-import type { TriageOutput } from '../triage/schema.ts'
-import type { ResolutionOutput } from '../resolution/schema.ts'
-import { TRIAGE_FALLBACK } from '../triage/fallback.ts'
-import { RESOLUTION_FALLBACK } from '../resolution/fallback.ts'
+import type { TriageOutput } from '../schemas/triage.ts'
+import type { ResolutionOutput } from '../schemas/resolution.ts'
+import { TRIAGE_FALLBACK } from '../schemas/triage.ts'
+import { RESOLUTION_FALLBACK } from '../schemas/resolution.ts'
 
 export type TicketRow = InferSelectModel<typeof tickets>
 export type JobTaskRow = InferSelectModel<typeof jobTasks>
@@ -151,6 +151,66 @@ export async function setTriageFallback(ticketId: string) {
     .update(tickets)
     .set({ triageOutput: TRIAGE_FALLBACK, updatedAt: new Date() })
     .where(eq(tickets.id, ticketId))
+}
+
+export async function getTicketStatus(ticketId: string) {
+  const [ticket] = await db.select().from(tickets).where(eq(tickets.id, ticketId)).limit(1)
+  if (!ticket) return null
+
+  const tasks = await db.select().from(jobTasks).where(eq(jobTasks.ticketId, ticketId))
+  const replays = await db.select().from(replayAttempts).where(eq(replayAttempts.ticketId, ticketId))
+
+  return {
+    ticket_id: ticket.id,
+    status: ticket.status,
+    created_at: ticket.createdAt,
+    updated_at: ticket.updatedAt,
+    phases: tasks.map((t) => ({
+      phase: t.phase,
+      status: t.status,
+      retry_count: t.retryCount,
+    })),
+    replays: replays.map((r) => ({
+      phase: r.phase,
+      initiated_at: r.createdAt,
+    })),
+  }
+}
+
+export async function getTicketForReplay(ticketId: string) {
+  const [ticket] = await db.select().from(tickets).where(eq(tickets.id, ticketId)).limit(1)
+  if (!ticket) return null
+
+  const tasks = await db.select().from(jobTasks).where(eq(jobTasks.ticketId, ticketId))
+  return { ticket, tasks }
+}
+
+export async function resetJobTaskForReplay(ticketId: string, phase: 'triage' | 'resolution') {
+  const now = new Date()
+  await db.transaction(async (tx) => {
+    await tx
+      .update(jobTasks)
+      .set({ status: 'queued', retryCount: 0, errorDetails: null, startedAt: null, completedAt: null, updatedAt: now })
+      .where(and(eq(jobTasks.ticketId, ticketId), eq(jobTasks.phase, phase)))
+    await tx
+      .update(tickets)
+      .set({ status: 'queued', errorLog: null, updatedAt: now })
+      .where(eq(tickets.id, ticketId))
+    await tx.insert(replayAttempts).values({ ticketId, phase })
+  })
+}
+
+export async function getTicketResult(ticketId: string) {
+  const [ticket] = await db.select().from(tickets).where(eq(tickets.id, ticketId)).limit(1)
+  if (!ticket) return null
+
+  return {
+    ticket_id: ticket.id,
+    status: ticket.status,
+    fallback: ticket.status === 'needs_manual_review',
+    triage_output: ticket.triageOutput,
+    resolution_output: ticket.resolutionOutput,
+  }
 }
 
 export async function setResolutionFallback(ticketId: string) {

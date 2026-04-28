@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
-import type { TriageOutput } from '../../src/triage/schema.ts'
+import type { TriageOutput } from '../../src/schemas/triage.ts'
 
 // ── Mock repository ──────────────────────────────────────────────────────────
 vi.mock('../../src/repositories/tickets.repository.ts', () => ({
@@ -44,7 +44,7 @@ import {
   setNeedsManualReview,
   setTriageFallback,
 } from '../../src/repositories/tickets.repository.ts'
-import { processTriageMessage } from '../../src/triage/handler.ts'
+import { processTriageMessage } from '../../src/handlers/triage.ts'
 import { roomManager } from '../../src/realtime/room-manager.ts'
 
 const mockRepo = {

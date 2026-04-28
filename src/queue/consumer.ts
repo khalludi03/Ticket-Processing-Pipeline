@@ -1,9 +1,9 @@
 import { ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs'
 import { createSQSClient } from './client.ts'
 import { config } from '../config.ts'
-import { sqsMessageSchema } from './schema.ts'
-import { processTriageMessage } from '../triage/handler.ts'
-import { processResolutionMessage } from '../resolution/handler.ts'
+import { sqsMessageSchema } from '../schemas/queue.ts'
+import { processTriageMessage } from '../handlers/triage.ts'
+import { processResolutionMessage } from '../handlers/resolution.ts'
 import { logger } from '../logger.ts'
 
 const POLL_WAIT_SECONDS = 20

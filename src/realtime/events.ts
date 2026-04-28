@@ -18,4 +18,18 @@ export type TicketFailedEvent = {
   timestamp: string
 }
 
-export type TicketEvent = TicketStartedEvent | TicketSuccessEvent | TicketFailedEvent
+export type PhaseProgressEvent = {
+  type: 'phase_progress'
+  ticket_id: string
+  phase: 'triage' | 'resolution'
+  timestamp: string
+}
+
+export type PhaseCompleteEvent = {
+  type: 'phase_complete'
+  ticket_id: string
+  phase: 'triage' | 'resolution'
+  timestamp: string
+}
+
+export type TicketEvent = TicketStartedEvent | TicketSuccessEvent | TicketFailedEvent | PhaseProgressEvent | PhaseCompleteEvent
