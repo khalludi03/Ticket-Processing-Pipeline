@@ -22,7 +22,9 @@ vi.mock('../../src/config.ts', () => ({
   config: {
     SQS_QUEUE_URL: 'http://localhost:4566/000000000000/dev-tickets-queue',
     SQS_DLQ_URL: 'http://localhost:4566/000000000000/dev-tickets-dlq',
-    BEDROCK_MODEL_ID: 'anthropic.claude-3-haiku-20240307-v1:0',
+    PORTKEY_API_KEY: 'test-portkey-key',
+    OPENROUTER_API_KEY: 'test-key',
+    OPENROUTER_MODEL_TRIAGE: 'gpt-4o-mini',
   },
 }))
 
@@ -96,7 +98,7 @@ const fakeOutput: TriageOutput = {
   confidence: 0.9,
 }
 
-const fakeMessage = { ticket_id: fakeTicket.id, phase: 'triage' as const, retry_count: 0 }
+const fakeMessage = { ticket_id: fakeTicket.id, phase: 'triage' as const }
 
 const stubAI = vi.fn().mockResolvedValue(fakeOutput)
 
@@ -130,12 +132,12 @@ describe('processTriageMessage', () => {
       fakeTicket.id,
       fakeOutput,
       expect.any(Number),
-      'anthropic.claude-3-haiku-20240307-v1:0',
+      'gpt-4o-mini',
     )
     expect(mockSend).toHaveBeenCalledOnce()
 
     const sentBody = JSON.parse(mockSend.mock.calls[0][0].input.MessageBody as string) as unknown
-    expect(sentBody).toMatchObject({ ticket_id: fakeTicket.id, phase: 'resolution', retry_count: 0 })
+    expect(sentBody).toMatchObject({ ticket_id: fakeTicket.id, phase: 'resolution' })
   })
 
   test('phase guard — skips if job_task already completed', async () => {
@@ -159,55 +161,24 @@ describe('processTriageMessage', () => {
     expect(mockRepo.setJobTaskProcessing).not.toHaveBeenCalled()
   })
 
-  test('failure retry_count=0 — sets failed and re-enqueues with DelaySeconds=2', async () => {
-    stubAI.mockRejectedValue(new Error('Bedrock timeout'))
+  test('failure — applies fallback, sets needs_manual_review, sends to DLQ', async () => {
+    stubAI.mockRejectedValue(new Error('Portkey exhausted'))
 
     await processTriageMessage(fakeMessage, stubAI)
 
-    expect(mockRepo.setJobTaskFailed).toHaveBeenCalledWith(fakeTicket.id, 'triage', 'Bedrock timeout', 1)
-    expect(mockRepo.setNeedsManualReview).not.toHaveBeenCalled()
-    expect(mockSend).toHaveBeenCalledOnce()
-
-    const call = mockSend.mock.calls[0][0].input as { DelaySeconds: number; MessageBody: string }
-    expect(call.DelaySeconds).toBe(2)
-    const body = JSON.parse(call.MessageBody) as unknown
-    expect(body).toMatchObject({ ticket_id: fakeTicket.id, phase: 'triage', retry_count: 1 })
-  })
-
-  test('failure retry_count=1 — re-enqueues with DelaySeconds=4', async () => {
-    stubAI.mockRejectedValue(new Error('fail'))
-
-    await processTriageMessage({ ...fakeMessage, retry_count: 1 }, stubAI)
-
-    const call = mockSend.mock.calls[0][0].input as { DelaySeconds: number }
-    expect(call.DelaySeconds).toBe(4)
-    expect(mockRepo.setJobTaskFailed).toHaveBeenCalledWith(fakeTicket.id, 'triage', 'fail', 2)
-  })
-
-  test('failure retry_count=2 — applies fallback, sets needs_manual_review, sends to DLQ', async () => {
-    stubAI.mockRejectedValue(new Error('exhausted'))
-
-    await processTriageMessage({ ...fakeMessage, retry_count: 2 }, stubAI)
-
-    expect(mockRepo.setJobTaskFailed).toHaveBeenCalledWith(fakeTicket.id, 'triage', 'exhausted', 3)
+    expect(mockRepo.setJobTaskFailed).toHaveBeenCalledWith(fakeTicket.id, 'triage', 'Portkey exhausted', 0)
     expect(mockRepo.setTriageFallback).toHaveBeenCalledWith(fakeTicket.id)
-    expect(mockRepo.setNeedsManualReview).toHaveBeenCalledWith(fakeTicket.id, 'exhausted')
+    expect(mockRepo.setNeedsManualReview).toHaveBeenCalledWith(fakeTicket.id, 'Portkey exhausted')
     expect(mockRoom.emit).toHaveBeenCalledWith(
       fakeTicket.id,
-      expect.objectContaining({ type: 'ticket_failed', ticket_id: fakeTicket.id, reason: 'exhausted' }),
+      expect.objectContaining({ type: 'ticket_failed', ticket_id: fakeTicket.id, reason: 'Portkey exhausted' }),
     )
     expect(mockRoom.close).toHaveBeenCalledWith(fakeTicket.id)
 
     // DLQ send
     expect(mockSend).toHaveBeenCalledOnce()
     const dlqBody = JSON.parse(mockSend.mock.calls[0][0].input.MessageBody as string) as Record<string, unknown>
-    expect(dlqBody).toMatchObject({ ticket_id: fakeTicket.id, phase: 'triage', retry_count: 3, reason: 'exhausted' })
+    expect(dlqBody).toMatchObject({ ticket_id: fakeTicket.id, phase: 'triage', reason: 'Portkey exhausted' })
     expect(dlqBody.failed_at).toBeTruthy()
-  })
-
-  test('backoff values — 2^n seconds for retry n', () => {
-    expect(Math.pow(2, 1)).toBe(2)
-    expect(Math.pow(2, 2)).toBe(4)
-    expect(Math.pow(2, 3)).toBe(8)
   })
 })

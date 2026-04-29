@@ -15,13 +15,11 @@ import {
 import { roomManager } from '../realtime/room-manager.ts'
 import { logger } from '../logger.ts'
 
-const MAX_RETRIES = 3
-
 export async function processTriageMessage(
   message: SQSMessage,
   aiCall: (ticket: TicketRow) => Promise<TriageOutput> = callTriageAI,
 ): Promise<void> {
-  const { ticket_id, retry_count } = message
+  const { ticket_id } = message
   const log = logger.child({ ticketId: ticket_id, phase: 'triage' })
 
   const row = await getTicketForTriage(ticket_id)
@@ -46,27 +44,23 @@ export async function processTriageMessage(
     const start = Date.now()
     const output = await aiCall(ticket)
     const processingTimeMs = Date.now() - start
-    await setTriageCompleted(ticket_id, output, processingTimeMs, config.BEDROCK_MODEL_ID)
+    await setTriageCompleted(ticket_id, output, processingTimeMs, config.OPENROUTER_MODEL_TRIAGE)
     roomManager.emit(ticket_id, { type: 'phase_complete', ticket_id, phase: 'triage', timestamp: new Date().toISOString() })
     await enqueueResolution(ticket_id)
     log.info({ processingTimeMs }, 'triage completed')
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
-    const newRetryCount = retry_count + 1
+    
+    // Portkey handles retries - just log the final failure
+    await setJobTaskFailed(ticket_id, 'triage', error, 0)
+    log.warn({ err }, 'triage failed after Portkey retries')
 
-    await setJobTaskFailed(ticket_id, 'triage', error, newRetryCount)
-    log.warn({ retryCount: newRetryCount, err }, 'triage failed')
-
-    if (newRetryCount < MAX_RETRIES) {
-      await reEnqueue(ticket_id, newRetryCount)
-    } else {
-      await setTriageFallback(ticket_id)
-      await setNeedsManualReview(ticket_id, error)
-      await sendToDLQ(ticket_id, 'triage', newRetryCount, error)
-      roomManager.emit(ticket_id, { type: 'ticket_failed', ticket_id, reason: error, timestamp: new Date().toISOString() })
-      roomManager.close(ticket_id)
-      log.warn({ retryCount: newRetryCount }, 'triage retries exhausted — fallback applied')
-    }
+    await setTriageFallback(ticket_id)
+    await setNeedsManualReview(ticket_id, error)
+    await sendToDLQ(ticket_id, 'triage', error)
+    roomManager.emit(ticket_id, { type: 'ticket_failed', ticket_id, reason: error, timestamp: new Date().toISOString() })
+    roomManager.close(ticket_id)
+    log.warn('triage fallback applied after Portkey exhaustion')
   }
 }
 
@@ -75,23 +69,12 @@ async function enqueueResolution(ticketId: string): Promise<void> {
   await client.send(
     new SendMessageCommand({
       QueueUrl: config.SQS_QUEUE_URL,
-      MessageBody: JSON.stringify({ ticket_id: ticketId, phase: 'resolution', retry_count: 0 }),
+      MessageBody: JSON.stringify({ ticket_id: ticketId, phase: 'resolution' }),
     }),
   )
 }
 
-async function reEnqueue(ticketId: string, retryCount: number): Promise<void> {
-  const client = createSQSClient()
-  await client.send(
-    new SendMessageCommand({
-      QueueUrl: config.SQS_QUEUE_URL,
-      MessageBody: JSON.stringify({ ticket_id: ticketId, phase: 'triage', retry_count: retryCount }),
-      DelaySeconds: Math.pow(2, retryCount),
-    }),
-  )
-}
-
-async function sendToDLQ(ticketId: string, phase: string, retryCount: number, reason: string): Promise<void> {
+async function sendToDLQ(ticketId: string, phase: string, reason: string): Promise<void> {
   const client = createSQSClient()
   await client.send(
     new SendMessageCommand({
@@ -99,7 +82,6 @@ async function sendToDLQ(ticketId: string, phase: string, retryCount: number, re
       MessageBody: JSON.stringify({
         ticket_id: ticketId,
         phase,
-        retry_count: retryCount,
         failed_at: new Date().toISOString(),
         reason,
       }),

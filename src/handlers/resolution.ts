@@ -16,13 +16,11 @@ import {
 import { roomManager } from '../realtime/room-manager.ts'
 import { logger } from '../logger.ts'
 
-const MAX_RETRIES = 3
-
 export async function processResolutionMessage(
   message: SQSMessage,
   aiCall: (ticket: TicketRow, triage: TriageOutput) => Promise<ResolutionOutput> = callResolutionAI,
 ): Promise<void> {
-  const { ticket_id, retry_count } = message
+  const { ticket_id } = message
   const log = logger.child({ ticketId: ticket_id, phase: 'resolution' })
 
   const row = await getTicketForResolution(ticket_id)
@@ -53,43 +51,27 @@ export async function processResolutionMessage(
     const start = Date.now()
     const output = await aiCall(ticket, triage)
     const processingTimeMs = Date.now() - start
-    await insertResolutionDraft(ticket_id, output, processingTimeMs, config.BEDROCK_MODEL_ID)
+    await insertResolutionDraft(ticket_id, output, processingTimeMs, config.OPENROUTER_MODEL_RESOLUTION)
     roomManager.emit(ticket_id, { type: 'phase_complete', ticket_id, phase: 'resolution', timestamp: new Date().toISOString() })
     roomManager.emit(ticket_id, { type: 'ticket_success', ticket_id, timestamp: new Date().toISOString() })
     roomManager.close(ticket_id)
     log.info({ processingTimeMs }, 'resolution completed')
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
-    const newRetryCount = retry_count + 1
 
-    await setJobTaskFailed(ticket_id, 'resolution', error, newRetryCount)
-    log.warn({ retryCount: newRetryCount, err }, 'resolution failed')
+    await setJobTaskFailed(ticket_id, 'resolution', error, 0)
+    log.warn({ err }, 'resolution failed after Portkey retries')
 
-    if (newRetryCount < MAX_RETRIES) {
-      await reEnqueue(ticket_id, newRetryCount)
-    } else {
-      await setResolutionFallback(ticket_id)
-      await setNeedsManualReview(ticket_id, error)
-      await sendToDLQ(ticket_id, 'resolution', newRetryCount, error)
-      roomManager.emit(ticket_id, { type: 'ticket_failed', ticket_id, reason: error, timestamp: new Date().toISOString() })
-      roomManager.close(ticket_id)
-      log.warn({ retryCount: newRetryCount }, 'resolution retries exhausted — fallback applied')
-    }
+    await setResolutionFallback(ticket_id)
+    await setNeedsManualReview(ticket_id, error)
+    await sendToDLQ(ticket_id, 'resolution', error)
+    roomManager.emit(ticket_id, { type: 'ticket_failed', ticket_id, reason: error, timestamp: new Date().toISOString() })
+    roomManager.close(ticket_id)
+    log.warn('resolution fallback applied after Portkey exhaustion')
   }
 }
 
-async function reEnqueue(ticketId: string, retryCount: number): Promise<void> {
-  const client = createSQSClient()
-  await client.send(
-    new SendMessageCommand({
-      QueueUrl: config.SQS_QUEUE_URL,
-      MessageBody: JSON.stringify({ ticket_id: ticketId, phase: 'resolution', retry_count: retryCount }),
-      DelaySeconds: Math.pow(2, retryCount),
-    }),
-  )
-}
-
-async function sendToDLQ(ticketId: string, phase: string, retryCount: number, reason: string): Promise<void> {
+async function sendToDLQ(ticketId: string, phase: string, reason: string): Promise<void> {
   const client = createSQSClient()
   await client.send(
     new SendMessageCommand({
@@ -97,7 +79,6 @@ async function sendToDLQ(ticketId: string, phase: string, retryCount: number, re
       MessageBody: JSON.stringify({
         ticket_id: ticketId,
         phase,
-        retry_count: retryCount,
         failed_at: new Date().toISOString(),
         reason,
       }),

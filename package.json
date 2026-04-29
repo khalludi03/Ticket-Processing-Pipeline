@@ -4,6 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "node --watch --strip-types src/index.ts",
+    "db:studio": "npx drizzle-kit studio",
+    "db:push": "npx drizzle-kit push",
+    "db:pull": "npx drizzle-kit pull",
     "db:migrate": "npx drizzle-kit migrate",
     "db:rollback": "node --strip-types src/db/rollback.ts",
     "db:generate": "npx drizzle-kit generate",
@@ -11,16 +14,16 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.1037.0",
     "@aws-sdk/client-sqs": "^3.1037.0",
     "@hono/node-server": "^2.0.0",
     "dotenv": "^16.0.0",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.15",
     "hono-rate-limiter": "^0.5.3",
-    "langsmith": "^0.5.25",
+    "openai": "^4.77.0",
     "pg": "^8.20.0",
     "pino": "^10.3.1",
+    "portkey-ai": "^3.1.0",
     "ws": "^8.20.0",
     "zod": "^4.3.6"
   },

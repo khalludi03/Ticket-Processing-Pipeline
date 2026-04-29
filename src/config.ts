@@ -4,16 +4,14 @@ import { z } from 'zod'
 const envSchema = z.object({
   DATABASE_URL: z.string(),
   DATABASE_PASSWORD: z.string(),
-  AWS_REGION: z.string(),
   SQS_QUEUE_URL: z.string(),
   SQS_DLQ_URL: z.string(),
-  AWS_ACCESS_KEY_ID: z.string().optional(),
-  AWS_SECRET_ACCESS_KEY: z.string().optional(),
   SEED_API_KEY: z.string().optional(),
   PORT: z.coerce.number().default(3000),
-  BEDROCK_MODEL_ID: z.string(),
-  LANGSMITH_API_KEY: z.string().optional(),
-  LANGSMITH_TRACING: z.string().optional(),
+  OPENROUTER_API_KEY: z.string(),
+  PORTKEY_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL_TRIAGE: z.string().default('google/gemini-flash-1.5').transform(m => m.startsWith('claude') ? `anthropic/${m}` : m),
+  OPENROUTER_MODEL_RESOLUTION: z.string().default('google/gemini-flash-1.5').transform(m => m.startsWith('claude') ? `anthropic/${m}` : m),
 })
 
 const result = envSchema.safeParse(process.env)

@@ -2,7 +2,7 @@ services:
   db:
     image: postgres:16-alpine
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: testingpassword
@@ -28,6 +28,9 @@ services:
       - "4566:4566"
     environment:
       SERVICES: sqs
+      SQS_ENDPOINT_STRATEGY: path
+    volumes:
+      - "./localstack:/etc/localstack/init/ready.d"
 
 volumes:
   db_data:

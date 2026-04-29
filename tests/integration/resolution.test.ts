@@ -113,12 +113,12 @@ afterAll(async () => {
 describe('processResolutionMessage (integration)', () => {
   test('happy path — writes resolution_output, completes job_task, sets ticket completed', async () => {
     const ticket = await insertTicketWithTriage()
-    const message: SQSMessage = { ticket_id: ticket.id, phase: 'resolution', retry_count: 0 }
+    await sqsSetup.send(new PurgeQueueCommand({ QueueUrl: queueUrl }))
 
     const mockWs = { send: vi.fn(), close: vi.fn() }
     roomManager.join(ticket.id, mockWs)
 
-    await processResolutionMessage(message, stubAI)
+    await processResolutionMessage({ ticket_id: ticket.id, phase: 'resolution' }, stubAI)
 
     const [updatedTicket] = await db.select().from(tickets).where(eq(tickets.id, ticket.id))
     expect(updatedTicket?.resolutionOutput).toMatchObject(stubOutput)
@@ -157,7 +157,7 @@ describe('processResolutionMessage (integration)', () => {
 
     await sqsSetup.send(new PurgeQueueCommand({ QueueUrl: queueUrl }))
 
-    const message: SQSMessage = { ticket_id: ticket.id, phase: 'resolution', retry_count: 0 }
+    const message: SQSMessage = { ticket_id: ticket.id, phase: 'resolution' }
     await processResolutionMessage(message, stubAI)
 
     const [t] = await db.select().from(tickets).where(eq(tickets.id, ticket.id))
@@ -166,42 +166,15 @@ describe('processResolutionMessage (integration)', () => {
     await cleanupTicket(ticket.id)
   })
 
-  test('failure retry < 3 — sets job_task failed, re-enqueues resolution with delay', async () => {
+  test('failure — sets needs_manual_review, sends to DLQ', async () => {
     const ticket = await insertTicketWithTriage()
     await sqsSetup.send(new PurgeQueueCommand({ QueueUrl: queueUrl }))
-
-    const message: SQSMessage = { ticket_id: ticket.id, phase: 'resolution', retry_count: 1 }
-    await processResolutionMessage(message, failingAI)
-
-    const [task] = await db
-      .select()
-      .from(jobTasks)
-      .where(and(eq(jobTasks.ticketId, ticket.id), eq(jobTasks.phase, 'resolution')))
-    expect(task?.status).toBe('failed')
-    expect(task?.retryCount).toBe(2)
-
-    // Confirm re-enqueue happened — check all message states since LocalStack
-    // may treat DelaySeconds differently across versions.
-    const attrs = await sqsSetup.send(new GetQueueAttributesCommand({
-      QueueUrl: queueUrl,
-      AttributeNames: ['ApproximateNumberOfMessages', 'ApproximateNumberOfMessagesDelayed', 'ApproximateNumberOfMessagesNotVisible'],
-    }))
-    const total = ['ApproximateNumberOfMessages', 'ApproximateNumberOfMessagesDelayed', 'ApproximateNumberOfMessagesNotVisible']
-      .reduce((sum, k) => sum + parseInt(attrs.Attributes?.[k] ?? '0', 10), 0)
-    expect(total).toBeGreaterThan(0)
-
-    await cleanupTicket(ticket.id)
-  })
-
-  test('failure retry exhausted — sets needs_manual_review, no re-enqueue', async () => {
-    const ticket = await insertTicketWithTriage()
-    await sqsSetup.send(new PurgeQueueCommand({ QueueUrl: queueUrl }))
+    await sqsSetup.send(new PurgeQueueCommand({ QueueUrl: dlqUrl }))
 
     const mockWs = { send: vi.fn(), close: vi.fn() }
     roomManager.join(ticket.id, mockWs)
 
-    const message: SQSMessage = { ticket_id: ticket.id, phase: 'resolution', retry_count: 2 }
-    await processResolutionMessage(message, failingAI)
+    await processResolutionMessage({ ticket_id: ticket.id, phase: 'resolution' }, failingAI)
 
     const [t] = await db.select().from(tickets).where(eq(tickets.id, ticket.id))
     expect(t?.status).toBe('needs_manual_review')
@@ -214,9 +187,14 @@ describe('processResolutionMessage (integration)', () => {
     expect(mockWs.send).toHaveBeenCalledWith(expect.stringContaining('"type":"ticket_failed"'))
     expect(mockWs.close).toHaveBeenCalledOnce()
 
-    // DLQ message
-    const dlqMessages = await sqsSetup.send(new ReceiveMessageCommand({ QueueUrl: dlqUrl, MaxNumberOfMessages: 1, WaitTimeSeconds: 0 }))
-    const dlqBody = JSON.parse(dlqMessages.Messages?.[0]?.Body ?? '{}') as Record<string, unknown>
+    // DLQ message - receive all and find ours
+    const dlqMessages = await sqsSetup.send(new ReceiveMessageCommand({ QueueUrl: dlqUrl, MaxNumberOfMessages: 10, WaitTimeSeconds: 0 }))
+    const ourMsg = dlqMessages.Messages?.find(m => {
+      const body = JSON.parse(m.Body ?? '{}') as Record<string, unknown>
+      return body.ticket_id === ticket.id
+    })
+    expect(ourMsg).toBeDefined()
+    const dlqBody = JSON.parse(ourMsg!.Body ?? '{}') as Record<string, unknown>
     expect(dlqBody).toMatchObject({ ticket_id: ticket.id, phase: 'resolution', reason: 'Bedrock unavailable' })
     expect(dlqBody.failed_at).toBeTruthy()
 

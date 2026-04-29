@@ -14,9 +14,8 @@ export async function submitTicket(data: NewTicket) {
         MessageBody: JSON.stringify({
           ticket_id: ticket.id,
           phase: 'triage',
-          retry_count: 0,
         }),
-      })
+      }),
     )
   } catch (err) {
     await setTicketFailed(ticket.id, err instanceof Error ? err.message : 'Unknown error')
@@ -46,7 +45,7 @@ export async function replayTicket(ticketId: string) {
   await client.send(
     new SendMessageCommand({
       QueueUrl: process.env.SQS_QUEUE_URL!,
-      MessageBody: JSON.stringify({ ticket_id: ticketId, phase, retry_count: 0 }),
+      MessageBody: JSON.stringify({ ticket_id: ticketId, phase }),
     }),
   )
 

@@ -6,7 +6,6 @@ describe('sqsMessageSchema', () => {
     const result = sqsMessageSchema.safeParse({
       ticket_id: '01234567-89ab-7def-8123-456789abcdef',
       phase: 'triage',
-      retry_count: 0,
     })
     expect(result.success).toBe(true)
   })
@@ -15,7 +14,6 @@ describe('sqsMessageSchema', () => {
     const result = sqsMessageSchema.safeParse({
       ticket_id: '01234567-89ab-7def-8123-456789abcdef',
       phase: 'resolution',
-      retry_count: 3,
     })
     expect(result.success).toBe(true)
   })
@@ -24,7 +22,6 @@ describe('sqsMessageSchema', () => {
     const result = sqsMessageSchema.safeParse({
       ticket_id: 'not-a-uuid',
       phase: 'triage',
-      retry_count: 0,
     })
     expect(result.success).toBe(false)
   })
@@ -33,16 +30,6 @@ describe('sqsMessageSchema', () => {
     const result = sqsMessageSchema.safeParse({
       ticket_id: '01234567-89ab-7def-8123-456789abcdef',
       phase: 'processing',
-      retry_count: 0,
-    })
-    expect(result.success).toBe(false)
-  })
-
-  test('rejects negative retry_count', () => {
-    const result = sqsMessageSchema.safeParse({
-      ticket_id: '01234567-89ab-7def-8123-456789abcdef',
-      phase: 'triage',
-      retry_count: -1,
     })
     expect(result.success).toBe(false)
   })

@@ -1,5 +1,4 @@
-import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime'
-import { traceable } from 'langsmith/traceable'
+import { Portkey } from 'portkey-ai'
 import { config } from '../config.ts'
 import { resolutionOutputSchema, type ResolutionOutput } from '../schemas/resolution.ts'
 import type { TriageOutput } from '../schemas/triage.ts'
@@ -37,34 +36,42 @@ function buildPrompt(ticket: TicketRow, triage: TriageOutput): string {
   return lines.join('\n')
 }
 
-async function _callResolutionAI(ticket: TicketRow, triage: TriageOutput): Promise<ResolutionOutput> {
-  const client = new BedrockRuntimeClient({ region: config.AWS_REGION })
-
-  const payload = {
-    anthropic_version: 'bedrock-2023-05-31',
-    max_tokens: 1024,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: buildPrompt(ticket, triage) }],
+const portkey = new Portkey({
+  apiKey: config.PORTKEY_API_KEY,
+  provider: "openrouter",
+  authorization: `Bearer ${config.OPENROUTER_API_KEY}`,
+  config: {
+    retry: { attempts: 3, onStatusCodes: [[429, 500, 502, 503, 504]] },
+    fallbacks: [{ id: 'resolution-fallback', name: 'openai/gpt-4o-mini' }],
   }
+})
 
-  const command = new InvokeModelCommand({
-    modelId: config.BEDROCK_MODEL_ID,
-    contentType: 'application/json',
-    accept: 'application/json',
-    body: JSON.stringify(payload),
+export async function callResolutionAI(ticket: TicketRow, triage: TriageOutput): Promise<ResolutionOutput> {
+  const response = await portkey.chat.completions.create({
+    model: config.OPENROUTER_MODEL_RESOLUTION,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: buildPrompt(ticket, triage) },
+    ],
+    max_tokens: 1024,
+    response_format: { type: 'json_object' },
   })
 
-  const response = await client.send(command)
-  const body = JSON.parse(Buffer.from(response.body).toString('utf-8')) as {
-    content: { type: string; text: string }[]
+  // Log Portkey retry/fallback metadata from response headers
+  const headers = response.headers as Record<string, string>
+  console.log('Portkey metadata:', {
+    retries: headers['x-portkey-retry-attempt-count'],
+    fallback: headers['x-portkey-fallback'],
+    model: headers['x-portkey-model'],
+  })
+
+  const text = response.choices[0]?.message?.content ?? ''
+  try {
+    const jsonString = text.replace(/```json\n?|```/g, '').trim()
+    const parsed: unknown = JSON.parse(jsonString)
+    return resolutionOutputSchema.parse(parsed)
+  } catch (err) {
+    console.error('Failed to parse resolution AI response:', text)
+    throw err
   }
-
-  const text = body.content.find((c) => c.type === 'text')?.text ?? ''
-  const parsed: unknown = JSON.parse(text)
-  return resolutionOutputSchema.parse(parsed)
 }
-
-export const callResolutionAI = traceable(_callResolutionAI, {
-  name: 'resolution',
-  run_type: 'llm',
-})

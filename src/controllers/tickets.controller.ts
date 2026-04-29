@@ -58,6 +58,11 @@ export async function createTicket(c: Context) {
 export async function getTicket(c: Context) {
   try {
     const id = c.req.param('id')
+
+    if (!id || !z.string().uuid().safeParse(id).success) {
+      return c.json({ error: 'Invalid ticket ID format' }, 400)
+    }
+
     const result = await getTicketStatus(id)
     if (!result) return c.json({ error: 'Ticket not found' }, 404)
     return c.json(result)
@@ -70,6 +75,11 @@ export async function getTicket(c: Context) {
 export async function replayTicketHandler(c: Context) {
   try {
     const id = c.req.param('id')
+
+    if (!id || !z.string().uuid().safeParse(id).success) {
+      return c.json({ error: 'Invalid ticket ID format' }, 400)
+    }
+
     const result = await replayTicket(id)
 
     if ('error' in result) {
@@ -88,6 +98,11 @@ export async function replayTicketHandler(c: Context) {
 export async function getTicketResultHandler(c: Context) {
   try {
     const id = c.req.param('id')
+
+    if (!id || !z.string().uuid().safeParse(id).success) {
+      return c.json({ error: 'Invalid ticket ID format' }, 400)
+    }
+
     const result = await getTicketResult(id)
     if (!result) return c.json({ error: 'Ticket not found' }, 404)
 
