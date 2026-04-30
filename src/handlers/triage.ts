@@ -55,7 +55,7 @@ export async function processTriageMessage(
     await setJobTaskFailed(ticket_id, 'triage', error, 0)
     log.warn({ err }, 'triage failed after Portkey retries')
 
-    await setTriageFallback(ticket_id)
+    await setTriageFallback(ticket_id, error)
     await setNeedsManualReview(ticket_id, error)
     await sendToDLQ(ticket_id, 'triage', error)
     roomManager.emit(ticket_id, { type: 'ticket_failed', ticket_id, reason: error, timestamp: new Date().toISOString() })

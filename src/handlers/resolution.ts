@@ -62,7 +62,7 @@ export async function processResolutionMessage(
     await setJobTaskFailed(ticket_id, 'resolution', error, 0)
     log.warn({ err }, 'resolution failed after Portkey retries')
 
-    await setResolutionFallback(ticket_id)
+    await setResolutionFallback(ticket_id, error)
     await setNeedsManualReview(ticket_id, error)
     await sendToDLQ(ticket_id, 'resolution', error)
     roomManager.emit(ticket_id, { type: 'ticket_failed', ticket_id, reason: error, timestamp: new Date().toISOString() })

@@ -6,6 +6,8 @@ export const triageOutputSchema = z.object({
   summary: z.string(),
   sentiment: z.enum(['positive', 'neutral', 'negative', 'frustrated']),
   suggested_tags: z.array(z.string()),
+  escalation_need: z.boolean().default(false),
+  routing_target: z.string().default('general'),
   confidence: z.number().min(0).max(1),
 })
 
@@ -17,5 +19,7 @@ export const TRIAGE_FALLBACK: TriageOutput = {
   sentiment: 'neutral',
   summary: 'Automated triage unavailable — manual review required.',
   suggested_tags: [],
+  escalation_need: true,
+  routing_target: 'manual_review',
   confidence: 0,
 }

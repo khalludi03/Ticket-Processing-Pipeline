@@ -146,11 +146,18 @@ export async function setNeedsManualReview(ticketId: string, errorLog: string) {
     .where(eq(tickets.id, ticketId))
 }
 
-export async function setTriageFallback(ticketId: string) {
-  await db
-    .update(tickets)
-    .set({ triageOutput: TRIAGE_FALLBACK, updatedAt: new Date() })
-    .where(eq(tickets.id, ticketId))
+export async function setTriageFallback(ticketId: string, reason: string) {
+  const now = new Date()
+  await db.transaction(async (tx) => {
+    await tx
+      .update(jobTasks)
+      .set({ fallbackUsed: true, fallbackReason: reason, updatedAt: now })
+      .where(and(eq(jobTasks.ticketId, ticketId), eq(jobTasks.phase, 'triage')))
+    await tx
+      .update(tickets)
+      .set({ triageOutput: TRIAGE_FALLBACK, updatedAt: now })
+      .where(eq(tickets.id, ticketId))
+  })
 }
 
 export async function getTicketStatus(ticketId: string) {
@@ -213,7 +220,7 @@ export async function getTicketResult(ticketId: string) {
   }
 }
 
-export async function setResolutionFallback(ticketId: string) {
+export async function setResolutionFallback(ticketId: string, reason: string) {
   const now = new Date()
   await db.transaction(async (tx) => {
     const rows = await tx
@@ -229,8 +236,44 @@ export async function setResolutionFallback(ticketId: string) {
       modelVersion: 'fallback',
     })
     await tx
+      .update(jobTasks)
+      .set({ fallbackUsed: true, fallbackReason: reason, updatedAt: now })
+      .where(and(eq(jobTasks.ticketId, ticketId), eq(jobTasks.phase, 'resolution')))
+    await tx
       .update(tickets)
       .set({ resolutionOutput: RESOLUTION_FALLBACK, updatedAt: now })
       .where(eq(tickets.id, ticketId))
+  })
+}
+
+export async function setManualReply(ticketId: string, reply: string, internalNote: string | null, userId: string) {
+  const now = new Date()
+  await db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ maxVersion: max(resolutionDrafts.version) })
+      .from(resolutionDrafts)
+      .where(eq(resolutionDrafts.ticketId, ticketId))
+    const nextVersion = (rows[0]?.maxVersion ?? 0) + 1
+    const output = { suggested_reply: reply, internal_note: internalNote, resolution_steps: [], requires_escalation: false, confidence: 1 }
+    await tx.insert(resolutionDrafts).values({
+      ticketId,
+      version: nextVersion,
+      output,
+      processingTimeMs: 0,
+      modelVersion: `manual:${userId}`,
+    })
+    await tx
+      .update(tickets)
+      .set({ resolutionOutput: output, status: 'completed', updatedAt: now })
+      .where(eq(tickets.id, ticketId))
+    const tasks = await tx.select().from(jobTasks).where(eq(jobTasks.ticketId, ticketId))
+    for (const task of tasks) {
+      if (task.status !== 'completed') {
+        await tx
+          .update(jobTasks)
+          .set({ status: 'completed', completedAt: now, updatedAt: now })
+          .where(eq(jobTasks.id, task.id))
+      }
+    }
   })
 }
