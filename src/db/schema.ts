@@ -97,22 +97,6 @@ export const replayAttempts = pgTable('replay_attempts', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
-export const resolutionDrafts = pgTable(
-  'resolution_drafts',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    ticketId: uuid('ticket_id')
-      .notNull()
-      .references(() => tickets.id, { onDelete: 'cascade' }),
-    version: integer('version').notNull(),
-    output: jsonb('output').notNull(),
-    processingTimeMs: integer('processing_time_ms').notNull(),
-    modelVersion: text('model_version').notNull(),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-  },
-  (t) => [unique().on(t.ticketId, t.version)],
-)
-
 export const pipelineEvents = pgTable('pipeline_events', {
   id: uuid('id').primaryKey().defaultRandom(),
   ticketId: uuid('ticket_id')

@@ -71,6 +71,20 @@
       "when": 1777874400000,
       "tag": "0009_enrich_replay_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1777960800000,
+      "tag": "0010_drop_webhooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1778047200000,
+      "tag": "0011_drop_resolution_drafts",
+      "breakpoints": true
     }
   ]
 }

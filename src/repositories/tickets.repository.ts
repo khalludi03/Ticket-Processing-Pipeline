@@ -1,6 +1,6 @@
-import { eq, and, max, asc } from 'drizzle-orm'
+import { eq, and, asc } from 'drizzle-orm'
 import { db } from '../db/index.ts'
-import { tickets, jobTasks, resolutionDrafts, replayAttempts, pipelineEvents } from '../db/schema.ts'
+import { tickets, jobTasks, replayAttempts, pipelineEvents } from '../db/schema.ts'
 import type { InferInsertModel, InferSelectModel } from 'drizzle-orm'
 import type { TriageOutput } from '../schemas/triage.ts'
 import type { ResolutionOutput } from '../schemas/resolution.ts'
@@ -125,13 +125,6 @@ export async function insertResolutionDraft(
 ) {
   const now = new Date()
   await db.transaction(async (tx) => {
-    const rows = await tx
-      .select({ maxVersion: max(resolutionDrafts.version) })
-      .from(resolutionDrafts)
-      .where(eq(resolutionDrafts.ticketId, ticketId))
-    const nextVersion = (rows[0]?.maxVersion ?? 0) + 1
-
-    await tx.insert(resolutionDrafts).values({ ticketId, version: nextVersion, output, processingTimeMs, modelVersion })
     await tx
       .update(tickets)
       .set({ resolutionOutput: output, status: 'completed', updatedAt: now })
@@ -144,7 +137,7 @@ export async function insertResolutionDraft(
       ticketId,
       phase: 'resolution',
       eventType: 'phase_completed',
-      payload: { modelVersion, processingTimeMs, version: nextVersion },
+      payload: { modelVersion, processingTimeMs },
     })
     await tx.insert(pipelineEvents).values({
       ticketId,
@@ -314,18 +307,6 @@ export async function emitRetryAttempted(ticketId: string, phase: 'triage' | 're
 export async function setResolutionFallback(ticketId: string, reason: string) {
   const now = new Date()
   await db.transaction(async (tx) => {
-    const rows = await tx
-      .select({ maxVersion: max(resolutionDrafts.version) })
-      .from(resolutionDrafts)
-      .where(eq(resolutionDrafts.ticketId, ticketId))
-    const nextVersion = (rows[0]?.maxVersion ?? 0) + 1
-    await tx.insert(resolutionDrafts).values({
-      ticketId,
-      version: nextVersion,
-      output: RESOLUTION_FALLBACK,
-      processingTimeMs: 0,
-      modelVersion: 'fallback',
-    })
     await tx
       .update(jobTasks)
       .set({ fallbackUsed: true, fallbackReason: reason, updatedAt: now })
@@ -345,20 +326,8 @@ export async function setResolutionFallback(ticketId: string, reason: string) {
 
 export async function setManualReply(ticketId: string, reply: string, internalNote: string | null, userId: string) {
   const now = new Date()
+  const output = { suggested_reply: reply, internal_note: internalNote, resolution_steps: [], requires_escalation: false, confidence: 1 }
   await db.transaction(async (tx) => {
-    const rows = await tx
-      .select({ maxVersion: max(resolutionDrafts.version) })
-      .from(resolutionDrafts)
-      .where(eq(resolutionDrafts.ticketId, ticketId))
-    const nextVersion = (rows[0]?.maxVersion ?? 0) + 1
-    const output = { suggested_reply: reply, internal_note: internalNote, resolution_steps: [], requires_escalation: false, confidence: 1 }
-    await tx.insert(resolutionDrafts).values({
-      ticketId,
-      version: nextVersion,
-      output,
-      processingTimeMs: 0,
-      modelVersion: `manual:${userId}`,
-    })
     await tx
       .update(tickets)
       .set({ resolutionOutput: output, status: 'completed', updatedAt: now })
