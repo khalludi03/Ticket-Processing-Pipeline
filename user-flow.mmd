@@ -1,0 +1,61 @@
+flowchart TD
+    START["User submits ticket"] --> AUTH{"Authenticated?"}
+    AUTH -->|No| AUTH_ERR["Error 401: Invalid API key"] --> STOP["Stop"]
+    AUTH -->|Yes| RATE{"Under rate limit?"}
+    RATE -->|No| RATE_ERR["Error 429: Too many requests"] --> STOP
+    RATE -->|Yes| VALID{"Valid input?"}
+    VALID -->|No| VALID_ERR["Error 400: Validation failed"] --> STOP
+    VALID -->|Yes| CREATE["CREATE ticket + job_task in DB"]
+    CREATE --> ENQUEUE["Enqueue to SQS\n{phase: triage}"]
+    ENQUEUE --> RESPONSE["Return 202: ticket_id + status"]
+
+    RESPONSE --> WS_CONNECT["User connects to WebSocket"]
+    WS_CONNECT --> JOIN["Send join with ticket_id"]
+    JOIN --> LISTENING["Listening for events"]
+
+    LISTENING --> TRIAGE_START{"Receive ticket_started?"}
+    TRIAGE_START -->|Yes| TRIAGE_PROGRESS["Show: Triage in progress"]
+
+    TRIAGE_PROGRESS --> AI_CALL["AI processing via Portkey"]
+    AI_CALL --> RETRY{"Portkey retries\n(up to 3 attempts)"}
+
+    RETRY -->|Attempt 1-3 fail| RETRY2["Retrying..."]
+    RETRY2 --> RETRY
+
+    RETRY -->|Success| TRIAGE_DONE["Receive phase_complete\ntriage"]
+    TRIAGE_DONE --> RES_QUEUE["Enqueue resolution\n{phase: resolution}"]
+    RES_QUEUE --> RES_START["Receive ticket_started\nresolution"]
+    RES_START --> RES_PROGRESS["Show: Resolution in progress"]
+
+    RES_PROGRESS --> AI_CALL2["AI processing via Portkey"]
+    AI_CALL2 --> RETRY3{"Portkey retries\n(up to 3 attempts)"}
+    RETRY3 -->|Attempt 1-3 fail| RETRY4["Retrying..."]
+    RETRY4 --> RETRY3
+    RETRY3 -->|Success| RES_DONE["Receive ticket_success"]
+    RES_DONE --> SHOW_SUCCESS["Show: AI reply + resolution"]
+    SHOW_SUCCESS --> CLOSE_WS["WebSocket closes"]
+    CLOSE_WS --> VIEW_RESULT["GET /tickets/:id/result"]
+
+    RETRY -->|All 3 retries fail| FALLBACK_TRIAGE["Apply triage fallback\ncategory: general\npriority: medium"]
+    FALLBACK_TRIAGE --> MANUAL_REVIEW["Set: needs_manual_review"]
+    MANUAL_REVIEW --> DLQ1["Send to DLQ"]
+    DLQ1 --> FAILED1["Receive ticket_failed"]
+    FAILED1 --> CLOSE_WS1["WebSocket closes"]
+    CLOSE_WS1 --> MANUAL["Ticket needs manual review"]
+
+    RETRY3 -->|All 3 retries fail| FALLBACK_RES["Apply resolution fallback\nescalate: true"]
+    FALLBACK_RES --> MANUAL_REVIEW2["Set: needs_manual_review"]
+    MANUAL_REVIEW2 --> DLQ2["Send to DLQ"]
+    DLQ2 --> FAILED2["Receive ticket_failed"]
+    FAILED2 --> CLOSE_WS2["WebSocket closes"]
+    CLOSE_WS2 --> MANUAL2["Ticket needs manual review"]
+
+    MANUAL --> CHECK_STATUS{"GET /tickets/:id\nstatus?"}
+    CHECK_STATUS -->|needs_manual_review| MANUAL_REPLY["Agent submits manual reply\nPOST /tickets/:id/reply"]
+    MANUAL_REPLY --> SET_COMPLETE["Set status: completed\nSave reply to resolution_drafts"]
+    SET_COMPLETE --> VIEW_RESULT2["GET /tickets/:id/result\nView final reply"]
+
+    CHECK_STATUS -->|queued/processing| WAIT["Wait and retry"]
+    WAIT --> CHECK_STATUS
+
+    MANUAL2 --> CHECK_STATUS

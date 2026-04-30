@@ -1,0 +1,95 @@
+flowchart TB
+    subgraph Client
+        C["Client / Frontend"]
+        WS_CLIENT["WS Client"]
+    end
+
+    subgraph HTTP_API
+        HONO["Hono App"]
+        HEALTH["GET /health"]
+        TICKETS_ROUTE["/tickets"]
+        WS_ROUTE["GET /ws"]
+    end
+
+    subgraph Middleware
+        AUTH["Auth Middleware"]
+        RATE["Rate Limiter"]
+    end
+
+    subgraph Backend
+        CTRL["Tickets Controller"]
+        SVC["Tickets Service"]
+        REPO["Tickets Repository"]
+    end
+
+    subgraph Queue
+        SQS_MAIN["SQS Main Queue"]
+        SQS_DLQ["Dead Letter Queue"]
+        CONSUMER["SQS Consumer"]
+    end
+
+    subgraph AI_Processing
+        TRIAGE_H["triage.ts"]
+        RES_H["resolution.ts"]
+        PORTKEY["Portkey AI Gateway"]
+        OPENROUTER["OpenRouter"]
+    end
+
+    subgraph Realtime
+        RM["RoomManager"]
+        EVENTS["WS Events"]
+    end
+
+    subgraph Database
+        TICKETS_T["(tickets)"]
+        JOB_TASKS_T["(job_tasks)"]
+        RES_DRAFTS_T["(resolution_drafts)"]
+        API_KEYS_T["(api_keys)"]
+        REPLAY_T["(replay_attempts)"]
+    end
+
+    C -->|"POST /tickets"| HONO
+    C -->|"GET /tickets/:id"| HONO
+    C -->|"POST /tickets/:id/replay"| HONO
+
+    HONO --> HEALTH
+    HONO --> TICKETS_ROUTE
+    HONO --> WS_ROUTE
+
+    TICKETS_ROUTE --> AUTH
+    TICKETS_ROUTE --> RATE
+    AUTH --> CTRL
+    RATE --> CTRL
+
+    CTRL --> SVC
+    SVC --> REPO
+    SVC -->|enqueue| SQS_MAIN
+
+    WS_CLIENT -->|"join ticket_id"| WS_ROUTE
+    WS_ROUTE -->|upgradeWebSocket| RM
+    RM --> EVENTS
+    EVENTS -->|emit events| WS_CLIENT
+
+    SQS_MAIN -->|poll| CONSUMER
+    CONSUMER -->|triage| TRIAGE_H
+    CONSUMER -->|resolution| RES_H
+
+    TRIAGE_H -->|callTriageAI| PORTKEY
+    RES_H -->|callResolutionAI| PORTKEY
+    PORTKEY --> OPENROUTER
+
+    TRIAGE_H -->|emit| RM
+    RES_H -->|emit| RM
+
+    TRIAGE_H -->|update| REPO
+    RES_H -->|update| REPO
+
+    TRIAGE_H -->|enqueue resolution| SQS_MAIN
+    TRIAGE_H -->|send to DLQ| SQS_DLQ
+    RES_H -->|send to DLQ| SQS_DLQ
+
+    REPO --> TICKETS_T
+    REPO --> JOB_TASKS_T
+    REPO --> RES_DRAFTS_T
+    REPO --> API_KEYS_T
+    REPO --> REPLAY_T

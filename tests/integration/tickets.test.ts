@@ -24,7 +24,7 @@ beforeAll(async () => {
 
   await db
     .insert(apiKeys)
-    .values({ keyValue: TEST_API_KEY, isActive: true })
+    .values({ name: 'test-key', keyValue: TEST_API_KEY, isActive: true })
     .onConflictDoNothing({ target: apiKeys.keyValue })
 })
 

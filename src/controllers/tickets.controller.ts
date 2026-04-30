@@ -1,7 +1,7 @@
 import type { Context } from 'hono'
 import { z } from 'zod'
 import { submitTicket, replayTicket } from '../services/tickets.service.ts'
-import { getTicketStatus, getTicketResult } from '../repositories/tickets.repository.ts'
+import { getTicketStatus, getTicketResult, setManualReply } from '../repositories/tickets.repository.ts'
 import { logger } from '../logger.ts'
 
 const submitSchema = z.object({
@@ -114,6 +114,43 @@ export async function getTicketResultHandler(c: Context) {
     return c.json(result)
   } catch (err) {
     logger.error({ err }, 'failed to get ticket result')
+    return c.json({ error: 'Internal server error' }, 500)
+  }
+}
+
+const replySchema = z.object({
+  reply: z.string().min(1).max(5000),
+  internal_note: z.string().max(5000).optional(),
+})
+
+export async function manualReplyHandler(c: Context) {
+  try {
+    const id = c.req.param('id')
+
+    if (!id || !z.string().uuid().safeParse(id).success) {
+      return c.json({ error: 'Invalid ticket ID format' }, 400)
+    }
+
+    const body = await c.req.json().catch(() => null)
+    if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
+
+    const result = replySchema.safeParse(body)
+    if (!result.success) {
+      return c.json({ error: 'Validation failed', issues: result.error.issues }, 400)
+    }
+
+    const ticket = await getTicketStatus(id)
+    if (!ticket) return c.json({ error: 'Ticket not found' }, 404)
+    if (ticket.status !== 'needs_manual_review') {
+      return c.json({ error: 'Ticket is not in needs_manual_review status' }, 422)
+    }
+
+    const userId = c.req.header('x-user-id') ?? 'unknown'
+    await setManualReply(id, result.data.reply, result.data.internal_note ?? null, userId)
+
+    return c.json({ ticket_id: id, status: 'completed' }, 200)
+  } catch (err) {
+    logger.error({ err }, 'failed to submit manual reply')
     return c.json({ error: 'Internal server error' }, 500)
   }
 }

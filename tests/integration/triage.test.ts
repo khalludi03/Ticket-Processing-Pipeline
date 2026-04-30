@@ -30,6 +30,8 @@ const stubOutput: TriageOutput = {
   summary: 'User cannot log in on mobile.',
   sentiment: 'frustrated',
   suggested_tags: ['login', 'mobile'],
+  escalation_need: false,
+  routing_target: 'engineering',
   confidence: 0.92,
 }
 const stubAI = async () => stubOutput
@@ -155,10 +157,16 @@ describe('processTriageMessage (integration)', () => {
     await cleanupTicket(ticket.id)
   })
 
-  test('failure — sets needs_manual_review, sends to DLQ', async () => {
+  test('failure — retries 3 times then sets needs_manual_review, sends to DLQ', async () => {
     const ticket = await insertTicketAndJobTask()
     await sqsSetup.send(new PurgeQueueCommand({ QueueUrl: queueUrl }))
     await sqsSetup.send(new PurgeQueueCommand({ QueueUrl: dlqUrl }))
+
+    // Simulate 2 previous failures so this is the 3rd and final attempt
+    await db
+      .update(jobTasks)
+      .set({ retryCount: 2 })
+      .where(and(eq(jobTasks.ticketId, ticket.id), eq(jobTasks.phase, 'triage')))
 
     const mockWs = { send: vi.fn(), close: vi.fn() }
     roomManager.join(ticket.id, mockWs)
@@ -168,6 +176,12 @@ describe('processTriageMessage (integration)', () => {
     const [t] = await db.select().from(tickets).where(eq(tickets.id, ticket.id))
     expect(t?.status).toBe('needs_manual_review')
     expect(t?.errorLog).toBe('Bedrock unavailable')
+
+    const [task] = await db
+      .select()
+      .from(jobTasks)
+      .where(and(eq(jobTasks.ticketId, ticket.id), eq(jobTasks.phase, 'triage')))
+    expect(task?.retryCount).toBe(3)
 
     const queued = await peekQueue()
     expect(queued).toHaveLength(0)
@@ -190,6 +204,35 @@ describe('processTriageMessage (integration)', () => {
     // Fallback triage output written
     const [t2] = await db.select().from(tickets).where(eq(tickets.id, ticket.id))
     expect(t2?.triageOutput).toMatchObject({ category: 'general', priority: 'medium', confidence: 0 })
+
+    await cleanupTicket(ticket.id)
+  })
+
+  test('failure after retries — retries up to 3 times then sets needs_manual_review, sends to DLQ', async () => {
+    const ticket = await insertTicketAndJobTask()
+    await sqsSetup.send(new PurgeQueueCommand({ QueueUrl: queueUrl }))
+    await sqsSetup.send(new PurgeQueueCommand({ QueueUrl: dlqUrl }))
+
+    // Simulate 2 previous failures
+    await db
+      .update(jobTasks)
+      .set({ retryCount: 2 })
+      .where(and(eq(jobTasks.ticketId, ticket.id), eq(jobTasks.phase, 'triage')))
+
+    const mockWs = { send: vi.fn(), close: vi.fn() }
+    roomManager.join(ticket.id, mockWs)
+
+    await processTriageMessage({ ticket_id: ticket.id, phase: 'triage' }, failingAI)
+
+    const [t] = await db.select().from(tickets).where(eq(tickets.id, ticket.id))
+    expect(t?.status).toBe('needs_manual_review')
+
+    // Should have retried once before failing on 3rd attempt
+    const [task] = await db
+      .select()
+      .from(jobTasks)
+      .where(and(eq(jobTasks.ticketId, ticket.id), eq(jobTasks.phase, 'triage')))
+    expect(task?.retryCount).toBe(3)
 
     await cleanupTicket(ticket.id)
   })

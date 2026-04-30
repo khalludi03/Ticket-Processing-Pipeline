@@ -39,13 +39,13 @@ export async function replayTicket(ticketId: string) {
   const failedTask = row.tasks.find((t) => t.status === 'failed')
   const phase = (failedTask?.phase ?? 'triage') as 'triage' | 'resolution'
 
-  await resetJobTaskForReplay(ticketId, phase)
+  const replayId = await resetJobTaskForReplay(ticketId, phase)
 
   const client = createSQSClient()
   await client.send(
     new SendMessageCommand({
       QueueUrl: process.env.SQS_QUEUE_URL!,
-      MessageBody: JSON.stringify({ ticket_id: ticketId, phase }),
+      MessageBody: JSON.stringify({ ticket_id: ticketId, phase, replay_id: replayId }),
     }),
   )
 

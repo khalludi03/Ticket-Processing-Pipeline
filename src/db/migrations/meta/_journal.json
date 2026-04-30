@@ -34,7 +34,42 @@
       "idx": 4,
       "version": "7",
       "when": 1777442495959,
-      "tag": "0004_abnormal_timeslip",
+      "tag": "0004_add_webhooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777528800000,
+      "tag": "0005_enforce_output_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777615200000,
+      "tag": "0006_add_fallback_tracking",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777701600000,
+      "tag": "0007_add_pipeline_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777788000000,
+      "tag": "0008_enrich_api_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777874400000,
+      "tag": "0009_enrich_replay_attempts",
       "breakpoints": true
     }
   ]

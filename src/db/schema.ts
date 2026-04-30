@@ -21,6 +21,16 @@ export const jobTaskStatus = pgEnum('job_task_status', [
   'failed',
 ])
 
+export const eventTypeEnum = pgEnum('event_type', [
+  'phase_started',
+  'phase_completed',
+  'retry_attempted',
+  'fallback_triggered',
+  'pipeline_completed',
+  'ticket_created',
+  'ticket_failed',
+])
+
 export const tickets = pgTable('tickets', {
   id: uuid('id').primaryKey().defaultRandom(),
   title: text('title').notNull(),
@@ -53,6 +63,8 @@ export const jobTasks = pgTable(
     completedAt: timestamp('completed_at'),
     modelVersion: text('model_version'),
     processingTimeMs: integer('processing_time_ms'),
+    fallbackUsed: boolean('fallback_used').notNull().default(false),
+    fallbackReason: text('fallback_reason'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -61,10 +73,16 @@ export const jobTasks = pgTable(
 
 export const apiKeys = pgTable('api_keys', {
   id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
   keyValue: text('key_value').notNull().unique(),
+  createdBy: text('created_by'),
   isActive: boolean('is_active').notNull().default(true),
+  lastUsedAt: timestamp('last_used_at'),
+  expiresAt: timestamp('expires_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
+
+export const replayStatusEnum = pgEnum('replay_status', ['queued', 'processing', 'completed', 'failed'])
 
 export const replayAttempts = pgTable('replay_attempts', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -72,7 +90,11 @@ export const replayAttempts = pgTable('replay_attempts', {
     .notNull()
     .references(() => tickets.id, { onDelete: 'cascade' }),
   phase: phaseEnum('phase').notNull(),
+  status: replayStatusEnum('status').notNull().default('queued'),
+  result: jsonb('result'),
+  error: text('error'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
 export const resolutionDrafts = pgTable(
@@ -90,3 +112,16 @@ export const resolutionDrafts = pgTable(
   },
   (t) => [unique().on(t.ticketId, t.version)],
 )
+
+export const pipelineEvents = pgTable('pipeline_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ticketId: uuid('ticket_id')
+    .notNull()
+    .references(() => tickets.id, { onDelete: 'cascade' }),
+  phase: phaseEnum('phase'),
+  eventType: eventTypeEnum('event_type').notNull(),
+  payload: jsonb('payload'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+

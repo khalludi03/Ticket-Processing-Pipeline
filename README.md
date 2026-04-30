@@ -19,7 +19,7 @@ Built with a production-first mindset using asynchronous queue-based processing,
 - **Framework**: [Hono](https://hono.dev/)
 - **Database**: PostgreSQL with [Drizzle ORM](https://orm.drizzle.team/)
 - **Queue**: AWS SQS (emulated via LocalStack for dev)
- - **AI**: Portkey / OpenRouter (multi-LLM support)
+- **AI**: Portkey / OpenRouter (multi-LLM support)
 - **Real-time**: WebSockets
 - **Testing**: Vitest
 

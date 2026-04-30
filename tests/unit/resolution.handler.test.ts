@@ -1,8 +1,13 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 import type { ResolutionOutput } from '../../src/schemas/resolution.ts'
 import type { TriageOutput } from '../../src/schemas/triage.ts'
+import type { InferSelectModel } from 'drizzle-orm'
+import type { tickets, jobTasks } from '../../src/db/schema.ts'
 
-// ── Mock repository ──────────────────────────────────────────────────────────
+type TicketRow = InferSelectModel<typeof tickets>
+type JobTaskRow = InferSelectModel<typeof jobTasks>
+
+// ── Mock repository ──────────────────────────────────────────────────
 vi.mock('../../src/repositories/tickets.repository.ts', () => ({
   getTicketForResolution: vi.fn(),
   setJobTaskProcessing: vi.fn(),
@@ -12,13 +17,13 @@ vi.mock('../../src/repositories/tickets.repository.ts', () => ({
   setResolutionFallback: vi.fn(),
 }))
 
-// ── Mock SQS client ──────────────────────────────────────────────────────────
+// ── Mock SQS client ────────────────────────────────────────────────
 const mockSend = vi.fn()
 vi.mock('../../src/queue/client.ts', () => ({
   createSQSClient: () => ({ send: mockSend }),
 }))
 
-// ── Mock config ──────────────────────────────────────────────────────────────
+// ── Mock config ────────────────────────────────────────────────────
 vi.mock('../../src/config.ts', () => ({
   config: {
     SQS_QUEUE_URL: 'http://localhost:4566/000000000000/dev-tickets-queue',
@@ -29,12 +34,12 @@ vi.mock('../../src/config.ts', () => ({
   },
 }))
 
-// ── Mock room manager ────────────────────────────────────────────────────────
+// ── Mock room manager ────────────────────────────────────────────────
 vi.mock('../../src/realtime/room-manager.ts', () => ({
   roomManager: { emit: vi.fn(), close: vi.fn() },
 }))
 
-// ── Mock logger ──────────────────────────────────────────────────────────────
+// ── Mock logger ────────────────────────────────────────────────────
 vi.mock('../../src/logger.ts', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: vi.fn().mockReturnThis() },
 }))
@@ -65,19 +70,21 @@ const fakeTriage: TriageOutput = {
   summary: 'User cannot log in on mobile.',
   sentiment: 'frustrated',
   suggested_tags: ['login', 'mobile'],
+  escalation_need: false,
+  routing_target: 'engineering',
   confidence: 0.92,
 }
 
-const fakeTicket = {
+const fakeTicket: TicketRow = {
   id: '11111111-1111-1111-1111-111111111111',
   title: 'Login broken',
   description: 'Cannot log in on mobile.',
   customerId: 'c1',
-  channel: 'web' as const,
+  channel: 'web',
   attachments: null,
   tags: null,
   priorityHint: null,
-  status: 'processing' as const,
+  status: 'processing',
   triageOutput: fakeTriage,
   resolutionOutput: null,
   errorLog: null,
@@ -85,16 +92,19 @@ const fakeTicket = {
   updatedAt: new Date(),
 }
 
-const fakeJobTask = {
+const fakeJobTask: JobTaskRow = {
   id: '33333333-3333-3333-3333-333333333333',
   ticketId: fakeTicket.id,
-  phase: 'resolution' as const,
-  status: 'queued' as const,
+  phase: 'resolution',
+  status: 'queued',
   retryCount: 0,
   errorDetails: null,
   startedAt: null,
   completedAt: null,
+  processingTimeMs: null,
   modelVersion: null,
+  fallbackUsed: false,
+  fallbackReason: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 }
@@ -109,11 +119,15 @@ const fakeOutput: ResolutionOutput = {
 
 const fakeMessage = { ticket_id: fakeTicket.id, phase: 'resolution' as const }
 
-const stubAI = vi.fn().mockResolvedValue(fakeOutput)
+const stubAI = vi.fn<(ticket: TicketRow, triage: TriageOutput) => Promise<ResolutionOutput>>()
 
 const mockRoom = {
   emit: vi.mocked(roomManager.emit),
   close: vi.mocked(roomManager.close),
+}
+
+interface SQSSendCall {
+  input: { MessageBody: string }
 }
 
 beforeEach(() => {
@@ -174,11 +188,15 @@ describe('processResolutionMessage', () => {
 
   test('failure — applies fallback, sets needs_manual_review, sends to DLQ', async () => {
     stubAI.mockRejectedValue(new Error('Portkey exhausted'))
+    mockRepo.getTicketForResolution.mockResolvedValue({
+      ticket: fakeTicket,
+      jobTask: { ...fakeJobTask, retryCount: 2 },
+    })
 
     await processResolutionMessage(fakeMessage, stubAI)
 
-    expect(mockRepo.setJobTaskFailed).toHaveBeenCalledWith(fakeTicket.id, 'resolution', 'Portkey exhausted', 0)
-    expect(mockRepo.setResolutionFallback).toHaveBeenCalledWith(fakeTicket.id)
+    expect(mockRepo.setJobTaskFailed).toHaveBeenCalledWith(fakeTicket.id, 'resolution', 'Portkey exhausted', 3)
+    expect(mockRepo.setResolutionFallback).toHaveBeenCalledWith(fakeTicket.id, 'Portkey exhausted')
     expect(mockRepo.setNeedsManualReview).toHaveBeenCalledWith(fakeTicket.id, 'Portkey exhausted')
     expect(mockRoom.emit).toHaveBeenCalledWith(
       fakeTicket.id,
@@ -188,7 +206,8 @@ describe('processResolutionMessage', () => {
 
     // DLQ send
     expect(mockSend).toHaveBeenCalledOnce()
-    const dlqBody = JSON.parse(mockSend.mock.calls[0][0].input.MessageBody as string) as Record<string, unknown>
+    const calls = mockSend.mock.calls as unknown as [SQSSendCall][]
+    const dlqBody = JSON.parse(calls[0]![0]!.input.MessageBody) as Record<string, unknown>
     expect(dlqBody).toMatchObject({ ticket_id: fakeTicket.id, phase: 'resolution', reason: 'Portkey exhausted' })
     expect(dlqBody.failed_at).toBeTruthy()
   })

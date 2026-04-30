@@ -11,7 +11,8 @@ const envSchema = z.object({
   OPENROUTER_API_KEY: z.string(),
   PORTKEY_API_KEY: z.string().optional(),
   OPENROUTER_MODEL_TRIAGE: z.string().default('google/gemini-flash-1.5').transform(m => m.startsWith('claude') ? `anthropic/${m}` : m),
-  OPENROUTER_MODEL_RESOLUTION: z.string().default('google/gemini-flash-1.5').transform(m => m.startsWith('claude') ? `anthropic/${m}` : m),
+  OPENROUTER_MODEL_RESOLUTION: z.string().default('claude-sonnet-4').transform(m => m.startsWith('claude') ? `anthropic/${m}` : m),
+  ENCRYPTION_KEY: z.string().min(1),
 })
 
 const result = envSchema.safeParse(process.env)

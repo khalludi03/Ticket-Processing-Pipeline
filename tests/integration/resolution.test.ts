@@ -31,6 +31,8 @@ const fakeTriage: TriageOutput = {
   summary: 'User cannot log in on mobile.',
   sentiment: 'frustrated',
   suggested_tags: ['login', 'mobile'],
+  escalation_need: false,
+  routing_target: 'engineering',
   confidence: 0.92,
 }
 
@@ -166,10 +168,16 @@ describe('processResolutionMessage (integration)', () => {
     await cleanupTicket(ticket.id)
   })
 
-  test('failure — sets needs_manual_review, sends to DLQ', async () => {
+  test('failure — retries 3 times then sets needs_manual_review, sends to DLQ', async () => {
     const ticket = await insertTicketWithTriage()
     await sqsSetup.send(new PurgeQueueCommand({ QueueUrl: queueUrl }))
     await sqsSetup.send(new PurgeQueueCommand({ QueueUrl: dlqUrl }))
+
+    // Simulate 2 previous failures so this is the 3rd and final attempt
+    await db
+      .update(jobTasks)
+      .set({ retryCount: 2 })
+      .where(and(eq(jobTasks.ticketId, ticket.id), eq(jobTasks.phase, 'resolution')))
 
     const mockWs = { send: vi.fn(), close: vi.fn() }
     roomManager.join(ticket.id, mockWs)
@@ -179,6 +187,12 @@ describe('processResolutionMessage (integration)', () => {
     const [t] = await db.select().from(tickets).where(eq(tickets.id, ticket.id))
     expect(t?.status).toBe('needs_manual_review')
     expect(t?.errorLog).toBe('Bedrock unavailable')
+
+    const [task] = await db
+      .select()
+      .from(jobTasks)
+      .where(and(eq(jobTasks.ticketId, ticket.id), eq(jobTasks.phase, 'resolution')))
+    expect(task?.retryCount).toBe(3)
 
     const queued = await peekQueue()
     expect(queued).toHaveLength(0)
