@@ -1,11 +1,10 @@
 import { config } from '../config.ts'
 import { resolutionOutputSchema, type ResolutionOutput } from '../schemas/resolution.ts'
 import type { TriageOutput } from '../schemas/triage.ts'
-import type { InferSelectModel } from 'drizzle-orm'
-import type { tickets } from '../db/schema.ts'
+import type { TicketRow } from '../repositories/tickets.repository.ts'
 import { createPortkeyClient, callAIAndValidate } from './portkey-client.ts'
 
-export type TicketRow = InferSelectModel<typeof tickets>
+export type { TicketRow }
 
 const SYSTEM_PROMPT = `You are a customer support resolution specialist. Given a support ticket and its triage analysis, generate a resolution plan and draft a customer reply. Respond with a JSON object only — no markdown, no explanation.
 

@@ -1,5 +1,5 @@
 import { ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs'
-import { createSQSClient } from './client.ts'
+import { sqsClient } from './client.ts'
 import { config } from '../config.ts'
 import { sqsMessageSchema } from '../schemas/queue.ts'
 import { processTriageMessage } from '../handlers/triage.ts'
@@ -10,11 +10,10 @@ const POLL_WAIT_SECONDS = 20
 const MAX_MESSAGES = 10
 
 export async function startConsumer(): Promise<void> {
-  const client = createSQSClient()
   logger.info({ queueUrl: config.SQS_QUEUE_URL }, 'consumer starting')
 
   while (true) {
-    const res = await client.send(
+    const res = await sqsClient.send(
       new ReceiveMessageCommand({
         QueueUrl: config.SQS_QUEUE_URL,
         MaxNumberOfMessages: MAX_MESSAGES,
@@ -41,7 +40,7 @@ export async function startConsumer(): Promise<void> {
             await processResolutionMessage(message)
           }
 
-          await client.send(
+          await sqsClient.send(
             new DeleteMessageCommand({
               QueueUrl: config.SQS_QUEUE_URL,
               ReceiptHandle: raw.ReceiptHandle!,

@@ -1,6 +1,6 @@
-import { eq, and, asc } from 'drizzle-orm'
+import { eq, asc } from 'drizzle-orm'
 import { db } from '../db/index.ts'
-import { tickets, jobTasks, replayAttempts, pipelineEvents } from '../db/schema.ts'
+import { tickets, replayAttempts, pipelineEvents } from '../db/schema.ts'
 import type { InferInsertModel, InferSelectModel } from 'drizzle-orm'
 import type { TriageOutput } from '../schemas/triage.ts'
 import type { ResolutionOutput } from '../schemas/resolution.ts'
@@ -8,7 +8,6 @@ import { TRIAGE_FALLBACK } from '../schemas/triage.ts'
 import { RESOLUTION_FALLBACK } from '../schemas/resolution.ts'
 
 export type TicketRow = InferSelectModel<typeof tickets>
-export type JobTaskRow = InferSelectModel<typeof jobTasks>
 
 export type NewTicket = Pick<
   InferInsertModel<typeof tickets>,
@@ -18,11 +17,6 @@ export type NewTicket = Pick<
 export async function insertTicketWithJobTask(data: NewTicket) {
   return db.transaction(async (tx) => {
     const [ticket] = await tx.insert(tickets).values(data).returning()
-    await tx.insert(jobTasks).values({
-      ticketId: ticket!.id,
-      phase: 'triage',
-      status: 'queued',
-    })
     await tx.insert(pipelineEvents).values({
       ticketId: ticket!.id,
       eventType: 'ticket_created',
@@ -39,27 +33,14 @@ export async function setTicketFailed(ticketId: string, errorLog: string) {
     .where(eq(tickets.id, ticketId))
 }
 
-export async function getTicketForTriage(ticketId: string) {
+export async function getTicket(ticketId: string) {
   const [ticket] = await db.select().from(tickets).where(eq(tickets.id, ticketId)).limit(1)
-  if (!ticket) return null
-
-  const [jobTask] = await db
-    .select()
-    .from(jobTasks)
-    .where(and(eq(jobTasks.ticketId, ticketId), eq(jobTasks.phase, 'triage')))
-    .limit(1)
-
-  if (!jobTask) return null
-  return { ticket, jobTask }
+  return ticket ?? null
 }
 
 export async function setJobTaskProcessing(ticketId: string, phase: 'triage' | 'resolution') {
   const now = new Date()
   await db.transaction(async (tx) => {
-    await tx
-      .update(jobTasks)
-      .set({ status: 'processing', startedAt: now, updatedAt: now })
-      .where(and(eq(jobTasks.ticketId, ticketId), eq(jobTasks.phase, phase)))
     await tx
       .update(tickets)
       .set({ status: 'processing', updatedAt: now })
@@ -83,38 +64,20 @@ export async function setTriageCompleted(
   await db.transaction(async (tx) => {
     await tx
       .update(tickets)
-      .set({ triageOutput: output, updatedAt: now })
+      .set({
+        triageOutput: output,
+        triageProcessingTimeMs: processingTimeMs,
+        triageModelVersion: modelVersion,
+        updatedAt: now,
+      })
       .where(eq(tickets.id, ticketId))
-    await tx
-      .update(jobTasks)
-      .set({ status: 'completed', completedAt: now, updatedAt: now, modelVersion, processingTimeMs })
-      .where(and(eq(jobTasks.ticketId, ticketId), eq(jobTasks.phase, 'triage')))
     await tx.insert(pipelineEvents).values({
       ticketId,
       phase: 'triage',
       eventType: 'phase_completed',
       payload: { modelVersion, processingTimeMs },
     })
-    await tx.insert(jobTasks).values({
-      ticketId,
-      phase: 'resolution',
-      status: 'queued',
-    })
   })
-}
-
-export async function getTicketForResolution(ticketId: string) {
-  const [ticket] = await db.select().from(tickets).where(eq(tickets.id, ticketId)).limit(1)
-  if (!ticket) return null
-
-  const [jobTask] = await db
-    .select()
-    .from(jobTasks)
-    .where(and(eq(jobTasks.ticketId, ticketId), eq(jobTasks.phase, 'resolution')))
-    .limit(1)
-
-  if (!jobTask) return null
-  return { ticket, jobTask }
 }
 
 export async function insertResolutionDraft(
@@ -127,12 +90,14 @@ export async function insertResolutionDraft(
   await db.transaction(async (tx) => {
     await tx
       .update(tickets)
-      .set({ resolutionOutput: output, status: 'completed', updatedAt: now })
+      .set({
+        resolutionOutput: output,
+        status: 'completed',
+        resolutionProcessingTimeMs: processingTimeMs,
+        resolutionModelVersion: modelVersion,
+        updatedAt: now,
+      })
       .where(eq(tickets.id, ticketId))
-    await tx
-      .update(jobTasks)
-      .set({ status: 'completed', completedAt: now, updatedAt: now })
-      .where(and(eq(jobTasks.ticketId, ticketId), eq(jobTasks.phase, 'resolution')))
     await tx.insert(pipelineEvents).values({
       ticketId,
       phase: 'resolution',
@@ -143,27 +108,6 @@ export async function insertResolutionDraft(
       ticketId,
       eventType: 'pipeline_completed',
       payload: { modelVersion, totalProcessingTimeMs: processingTimeMs },
-    })
-  })
-}
-
-export async function setJobTaskFailed(
-  ticketId: string,
-  phase: 'triage' | 'resolution',
-  error: string,
-  retryCount: number,
-) {
-  const now = new Date()
-  await db.transaction(async (tx) => {
-    await tx
-      .update(jobTasks)
-      .set({ status: 'failed', errorDetails: error, retryCount, updatedAt: now })
-      .where(and(eq(jobTasks.ticketId, ticketId), eq(jobTasks.phase, phase)))
-    await tx.insert(pipelineEvents).values({
-      ticketId,
-      phase,
-      eventType: 'ticket_failed',
-      payload: { error, retryCount },
     })
   })
 }
@@ -179,19 +123,20 @@ export async function setTriageFallback(ticketId: string, reason: string) {
   const now = new Date()
   await db.transaction(async (tx) => {
     await tx
-      .update(jobTasks)
-      .set({ fallbackUsed: true, fallbackReason: reason, updatedAt: now })
-      .where(and(eq(jobTasks.ticketId, ticketId), eq(jobTasks.phase, 'triage')))
+      .update(tickets)
+      .set({
+        triageOutput: TRIAGE_FALLBACK,
+        triageFallbackUsed: true,
+        triageFallbackReason: reason,
+        updatedAt: now,
+      })
+      .where(eq(tickets.id, ticketId))
     await tx.insert(pipelineEvents).values({
       ticketId,
       phase: 'triage',
       eventType: 'fallback_triggered',
       payload: { reason, phase: 'triage' },
     })
-    await tx
-      .update(tickets)
-      .set({ triageOutput: TRIAGE_FALLBACK, updatedAt: now })
-      .where(eq(tickets.id, ticketId))
   })
 }
 
@@ -199,7 +144,6 @@ export async function getTicketStatus(ticketId: string) {
   const [ticket] = await db.select().from(tickets).where(eq(tickets.id, ticketId)).limit(1)
   if (!ticket) return null
 
-  const tasks = await db.select().from(jobTasks).where(eq(jobTasks.ticketId, ticketId))
   const replays = await db.select().from(replayAttempts).where(eq(replayAttempts.ticketId, ticketId))
   const events = await db
     .select()
@@ -212,13 +156,24 @@ export async function getTicketStatus(ticketId: string) {
     status: ticket.status,
     created_at: ticket.createdAt,
     updated_at: ticket.updatedAt,
-    phases: tasks.map((t) => ({
-      phase: t.phase,
-      status: t.status,
-      retry_count: t.retryCount,
-      fallback_used: t.fallbackUsed,
-      fallback_reason: t.fallbackReason,
-    })),
+    phases: [
+      {
+        phase: 'triage',
+        status: ticket.triageOutput ? 'completed' : 'pending',
+        processing_time_ms: ticket.triageProcessingTimeMs,
+        model_version: ticket.triageModelVersion,
+        fallback_used: ticket.triageFallbackUsed,
+        fallback_reason: ticket.triageFallbackReason,
+      },
+      {
+        phase: 'resolution',
+        status: ticket.resolutionOutput ? 'completed' : 'pending',
+        processing_time_ms: ticket.resolutionProcessingTimeMs,
+        model_version: ticket.resolutionModelVersion,
+        fallback_used: ticket.resolutionFallbackUsed,
+        fallback_reason: ticket.resolutionFallbackReason,
+      },
+    ],
     replays: replays.map((r) => ({
       phase: r.phase,
       status: r.status,
@@ -236,25 +191,31 @@ export async function getTicketStatus(ticketId: string) {
   }
 }
 
-export async function getTicketForReplay(ticketId: string) {
-  const [ticket] = await db.select().from(tickets).where(eq(tickets.id, ticketId)).limit(1)
-  if (!ticket) return null
-
-  const tasks = await db.select().from(jobTasks).where(eq(jobTasks.ticketId, ticketId))
-  return { ticket, tasks }
-}
-
 export async function resetJobTaskForReplay(ticketId: string, phase: 'triage' | 'resolution') {
   const now = new Date()
+  const clearFields =
+    phase === 'triage'
+      ? {
+          status: 'queued' as const,
+          errorLog: null,
+          updatedAt: now,
+          triageOutput: null,
+          triageFallbackUsed: false,
+          triageFallbackReason: null,
+          resolutionOutput: null,
+          resolutionFallbackUsed: false,
+          resolutionFallbackReason: null,
+        }
+      : {
+          status: 'queued' as const,
+          errorLog: null,
+          updatedAt: now,
+          resolutionOutput: null,
+          resolutionFallbackUsed: false,
+          resolutionFallbackReason: null,
+        }
   return db.transaction(async (tx) => {
-    await tx
-      .update(jobTasks)
-      .set({ status: 'queued', retryCount: 0, errorDetails: null, startedAt: null, completedAt: null, updatedAt: now })
-      .where(and(eq(jobTasks.ticketId, ticketId), eq(jobTasks.phase, phase)))
-    await tx
-      .update(tickets)
-      .set({ status: 'queued', errorLog: null, updatedAt: now })
-      .where(eq(tickets.id, ticketId))
+    await tx.update(tickets).set(clearFields).where(eq(tickets.id, ticketId))
     const [replay] = await tx.insert(replayAttempts).values({ ticketId, phase, status: 'processing' }).returning()
     return replay!.id
   })
@@ -295,51 +256,32 @@ export async function getTicketEvents(ticketId: string) {
     .orderBy(asc(pipelineEvents.createdAt))
 }
 
-export async function emitRetryAttempted(ticketId: string, phase: 'triage' | 'resolution', attempt: number) {
-  await db.insert(pipelineEvents).values({
-    ticketId,
-    phase,
-    eventType: 'retry_attempted',
-    payload: { attempt },
-  })
-}
-
 export async function setResolutionFallback(ticketId: string, reason: string) {
   const now = new Date()
   await db.transaction(async (tx) => {
     await tx
-      .update(jobTasks)
-      .set({ fallbackUsed: true, fallbackReason: reason, updatedAt: now })
-      .where(and(eq(jobTasks.ticketId, ticketId), eq(jobTasks.phase, 'resolution')))
+      .update(tickets)
+      .set({
+        resolutionOutput: RESOLUTION_FALLBACK,
+        resolutionFallbackUsed: true,
+        resolutionFallbackReason: reason,
+        updatedAt: now,
+      })
+      .where(eq(tickets.id, ticketId))
     await tx.insert(pipelineEvents).values({
       ticketId,
       phase: 'resolution',
       eventType: 'fallback_triggered',
       payload: { reason, phase: 'resolution' },
     })
-    await tx
-      .update(tickets)
-      .set({ resolutionOutput: RESOLUTION_FALLBACK, updatedAt: now })
-      .where(eq(tickets.id, ticketId))
   })
 }
 
 export async function setManualReply(ticketId: string, reply: string, internalNote: string | null, userId: string) {
   const now = new Date()
   const output = { suggested_reply: reply, internal_note: internalNote, resolution_steps: [], requires_escalation: false, confidence: 1 }
-  await db.transaction(async (tx) => {
-    await tx
-      .update(tickets)
-      .set({ resolutionOutput: output, status: 'completed', updatedAt: now })
-      .where(eq(tickets.id, ticketId))
-    const tasks = await tx.select().from(jobTasks).where(eq(jobTasks.ticketId, ticketId))
-    for (const task of tasks) {
-      if (task.status !== 'completed') {
-        await tx
-          .update(jobTasks)
-          .set({ status: 'completed', completedAt: now, updatedAt: now })
-          .where(eq(jobTasks.id, task.id))
-      }
-    }
-  })
+  await db
+    .update(tickets)
+    .set({ resolutionOutput: output, status: 'completed', updatedAt: now })
+    .where(eq(tickets.id, ticketId))
 }

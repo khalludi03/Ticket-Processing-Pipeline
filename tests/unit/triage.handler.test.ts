@@ -1,28 +1,20 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 import type { TriageOutput } from '../../src/schemas/triage.ts'
-import type { InferSelectModel } from 'drizzle-orm'
-import type { tickets, jobTasks } from '../../src/db/schema.ts'
+import type { TicketRow } from '../../src/repositories/tickets.repository.ts'
 
-type TicketRow = InferSelectModel<typeof tickets>
-type JobTaskRow = InferSelectModel<typeof jobTasks>
-
-// ── Mock repository ──────────────────────────────────────────────────
 vi.mock('../../src/repositories/tickets.repository.ts', () => ({
-  getTicketForTriage: vi.fn(),
+  getTicket: vi.fn(),
   setJobTaskProcessing: vi.fn(),
   setTriageCompleted: vi.fn(),
-  setJobTaskFailed: vi.fn(),
   setNeedsManualReview: vi.fn(),
   setTriageFallback: vi.fn(),
 }))
 
-// ── Mock SQS client ──────────────────────────────────────────────────
-const mockSend = vi.fn()
 vi.mock('../../src/queue/client.ts', () => ({
-  createSQSClient: () => ({ send: mockSend }),
+  sendToQueue: vi.fn(),
+  sendToDLQ: vi.fn(),
 }))
 
-// ── Mock config ──────────────────────────────────────────────────────
 vi.mock('../../src/config.ts', () => ({
   config: {
     SQS_QUEUE_URL: 'http://localhost:4566/000000000000/dev-tickets-queue',
@@ -33,32 +25,29 @@ vi.mock('../../src/config.ts', () => ({
   },
 }))
 
-// ── Mock room manager ────────────────────────────────────────────────
 vi.mock('../../src/realtime/room-manager.ts', () => ({
   roomManager: { emit: vi.fn(), close: vi.fn() },
 }))
 
-// ── Mock logger ──────────────────────────────────────────────────────
 vi.mock('../../src/logger.ts', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: vi.fn().mockReturnThis() },
 }))
 
 import {
-  getTicketForTriage,
+  getTicket,
   setJobTaskProcessing,
   setTriageCompleted,
-  setJobTaskFailed,
   setNeedsManualReview,
   setTriageFallback,
 } from '../../src/repositories/tickets.repository.ts'
+import { sendToQueue, sendToDLQ } from '../../src/queue/client.ts'
 import { processTriageMessage } from '../../src/handlers/triage.ts'
 import { roomManager } from '../../src/realtime/room-manager.ts'
 
 const mockRepo = {
-  getTicketForTriage: vi.mocked(getTicketForTriage),
+  getTicket: vi.mocked(getTicket),
   setJobTaskProcessing: vi.mocked(setJobTaskProcessing),
   setTriageCompleted: vi.mocked(setTriageCompleted),
-  setJobTaskFailed: vi.mocked(setJobTaskFailed),
   setNeedsManualReview: vi.mocked(setNeedsManualReview),
   setTriageFallback: vi.mocked(setTriageFallback),
 }
@@ -75,24 +64,15 @@ const fakeTicket: TicketRow = {
   status: 'queued',
   triageOutput: null,
   resolutionOutput: null,
+  triageProcessingTimeMs: null,
+  triageModelVersion: null,
+  triageFallbackUsed: false,
+  triageFallbackReason: null,
+  resolutionProcessingTimeMs: null,
+  resolutionModelVersion: null,
+  resolutionFallbackUsed: false,
+  resolutionFallbackReason: null,
   errorLog: null,
-  createdAt: new Date(),
-  updatedAt: new Date(),
-}
-
-const fakeJobTask: JobTaskRow = {
-  id: '22222222-2222-2222-2222-222222222222',
-  ticketId: fakeTicket.id,
-  phase: 'triage',
-  status: 'queued',
-  retryCount: 0,
-  errorDetails: null,
-  startedAt: null,
-  completedAt: null,
-  processingTimeMs: null,
-  modelVersion: null,
-  fallbackUsed: false,
-  fallbackReason: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 }
@@ -112,22 +92,21 @@ const fakeMessage = { ticket_id: fakeTicket.id, phase: 'triage' as const }
 
 const stubAI = vi.fn<(ticket: TicketRow) => Promise<TriageOutput>>()
 
+const mockSendToQueue = vi.mocked(sendToQueue)
+const mockSendToDLQ = vi.mocked(sendToDLQ)
+
 const mockRoom = {
   emit: vi.mocked(roomManager.emit),
   close: vi.mocked(roomManager.close),
 }
 
-interface SQSSendCall {
-  input: { MessageBody: string }
-}
-
 beforeEach(() => {
   vi.clearAllMocks()
-  mockSend.mockResolvedValue({})
-  mockRepo.getTicketForTriage.mockResolvedValue({ ticket: fakeTicket, jobTask: fakeJobTask })
+  mockSendToQueue.mockResolvedValue(undefined)
+  mockSendToDLQ.mockResolvedValue(undefined)
+  mockRepo.getTicket.mockResolvedValue(fakeTicket)
   mockRepo.setJobTaskProcessing.mockResolvedValue(undefined)
   mockRepo.setTriageCompleted.mockResolvedValue(undefined)
-  mockRepo.setJobTaskFailed.mockResolvedValue(undefined)
   mockRepo.setNeedsManualReview.mockResolvedValue(undefined)
   mockRepo.setTriageFallback.mockResolvedValue(undefined)
   stubAI.mockResolvedValue(fakeOutput)
@@ -148,28 +127,25 @@ describe('processTriageMessage', () => {
       expect.any(Number),
       'gpt-4o-mini',
     )
-    expect(mockSend).toHaveBeenCalledOnce()
-
-    const calls = mockSend.mock.calls as unknown as [SQSSendCall][]
-    const sentBody = JSON.parse(calls[0]![0]!.input.MessageBody) as unknown
-    expect(sentBody).toMatchObject({ ticket_id: fakeTicket.id, phase: 'resolution' })
+    expect(mockSendToQueue).toHaveBeenCalledOnce()
+    expect(mockSendToQueue).toHaveBeenCalledWith(
+      'http://localhost:4566/000000000000/dev-tickets-queue',
+      expect.objectContaining({ ticket_id: fakeTicket.id, phase: 'resolution' }),
+    )
   })
 
-  test('phase guard — skips if job_task already completed', async () => {
-    mockRepo.getTicketForTriage.mockResolvedValue({
-      ticket: fakeTicket,
-      jobTask: { ...fakeJobTask, status: 'completed' },
-    })
+  test('phase guard — skips if already triaged', async () => {
+    mockRepo.getTicket.mockResolvedValue({ ...fakeTicket, triageOutput: fakeOutput })
 
     await processTriageMessage(fakeMessage, stubAI)
 
     expect(mockRepo.setJobTaskProcessing).not.toHaveBeenCalled()
     expect(mockRepo.setTriageCompleted).not.toHaveBeenCalled()
-    expect(mockSend).not.toHaveBeenCalled()
+    expect(mockSendToQueue).not.toHaveBeenCalled()
   })
 
   test('ticket not found — returns without error', async () => {
-    mockRepo.getTicketForTriage.mockResolvedValue(null)
+    mockRepo.getTicket.mockResolvedValue(null)
 
     await processTriageMessage(fakeMessage, stubAI)
 
@@ -178,14 +154,9 @@ describe('processTriageMessage', () => {
 
   test('failure — applies fallback, sets needs_manual_review, sends to DLQ', async () => {
     stubAI.mockRejectedValue(new Error('Portkey exhausted'))
-    mockRepo.getTicketForTriage.mockResolvedValue({
-      ticket: fakeTicket,
-      jobTask: { ...fakeJobTask, retryCount: 2 },
-    })
 
     await processTriageMessage(fakeMessage, stubAI)
 
-    expect(mockRepo.setJobTaskFailed).toHaveBeenCalledWith(fakeTicket.id, 'triage', 'Portkey exhausted', 3)
     expect(mockRepo.setTriageFallback).toHaveBeenCalledWith(fakeTicket.id, 'Portkey exhausted')
     expect(mockRepo.setNeedsManualReview).toHaveBeenCalledWith(fakeTicket.id, 'Portkey exhausted')
     expect(mockRoom.emit).toHaveBeenCalledWith(
@@ -193,12 +164,12 @@ describe('processTriageMessage', () => {
       expect.objectContaining({ type: 'ticket_failed', ticket_id: fakeTicket.id, reason: 'Portkey exhausted' }),
     )
     expect(mockRoom.close).toHaveBeenCalledWith(fakeTicket.id)
-
-    // DLQ send
-    expect(mockSend).toHaveBeenCalledOnce()
-    const dlqCalls = mockSend.mock.calls as unknown as [SQSSendCall][]
-    const dlqBody = JSON.parse(dlqCalls[0]![0]!.input.MessageBody) as Record<string, unknown>
-    expect(dlqBody).toMatchObject({ ticket_id: fakeTicket.id, phase: 'triage', reason: 'Portkey exhausted' })
-    expect(dlqBody.failed_at).toBeTruthy()
+    expect(mockSendToDLQ).toHaveBeenCalledOnce()
+    expect(mockSendToDLQ).toHaveBeenCalledWith(
+      'http://localhost:4566/000000000000/dev-tickets-dlq',
+      fakeTicket.id,
+      'triage',
+      'Portkey exhausted',
+    )
   })
 })

@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { sql } from 'drizzle-orm'
 import { GetQueueAttributesCommand } from '@aws-sdk/client-sqs'
 import { db } from '../db/index.ts'
-import { createSQSClient } from '../queue/client.ts'
+import { sqsClient } from '../queue/client.ts'
 import { config } from '../config.ts'
 
 export const healthRoute = new Hono()
@@ -17,7 +17,7 @@ healthRoute.get('/', async (c) => {
   }
 
   try {
-    await createSQSClient().send(
+    await sqsClient.send(
       new GetQueueAttributesCommand({ QueueUrl: config.SQS_QUEUE_URL, AttributeNames: ['QueueArn'] }),
     )
   } catch {

@@ -2,7 +2,7 @@ import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import { CreateQueueCommand, SQSClient } from '@aws-sdk/client-sqs'
 import { eq } from 'drizzle-orm'
 import { db } from '../../src/db/index.ts'
-import { apiKeys, tickets, jobTasks } from '../../src/db/schema.ts'
+import { apiKeys, tickets } from '../../src/db/schema.ts'
 import app from '../../src/index.ts'
 import { submitTicket } from '../../src/services/tickets.service.ts'
 
@@ -33,7 +33,7 @@ afterAll(async () => {
 })
 
 describe('POST /tickets', () => {
-  test('creates ticket and job task, returns 201', async () => {
+  test('creates ticket, returns 201', async () => {
     const res = await app.request('/tickets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': TEST_API_KEY },
@@ -52,10 +52,6 @@ describe('POST /tickets', () => {
 
     const [ticket] = await db.select().from(tickets).where(eq(tickets.id, body.ticket_id))
     expect(ticket?.status).toBe('queued')
-
-    const [jobTask] = await db.select().from(jobTasks).where(eq(jobTasks.ticketId, body.ticket_id))
-    expect(jobTask?.phase).toBe('triage')
-    expect(jobTask?.status).toBe('queued')
 
     await db.delete(tickets).where(eq(tickets.id, body.ticket_id))
   })
@@ -130,12 +126,6 @@ describe('submitTicket — SQS enqueue failure', () => {
       ticketId = ticket?.id
       expect(ticket?.status).toBe('failed')
       expect(ticket?.errorLog).toBeTruthy()
-
-      const [jobTask] = await db
-        .select()
-        .from(jobTasks)
-        .where(eq(jobTasks.ticketId, ticket!.id))
-      expect(jobTask?.phase).toBe('triage')
     } finally {
       process.env.SQS_QUEUE_URL = originalUrl
       if (ticketId) await db.delete(tickets).where(eq(tickets.id, ticketId))

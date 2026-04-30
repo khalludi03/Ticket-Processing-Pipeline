@@ -85,6 +85,13 @@
       "when": 1778047200000,
       "tag": "0011_drop_resolution_drafts",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1778133600000,
+      "tag": "0012_consolidate_job_tasks",
+      "breakpoints": true
     }
   ]
 }
